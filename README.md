@@ -12,7 +12,7 @@ I3CBlaster has 3 usage schemes:
 
 Although I have a HDR-DDR implementation running it already is not yet fully tested and so far SDR mode (12.5MBit/s) and the mandatory open drain is supported.
 
-![](blob/main/pictures/Puttysession.png?raw=true)
+![](https://raw.githubusercontent.com/xyphro/I3CBlaster/refs/heads/main/pictures/Puttysession.png)
 
 ## In need of an I3C Analyzer?
 
@@ -72,9 +72,9 @@ Connect an external I3C target to those lines + GND and supply.
 
 Note, that the I3C bus operates on 3.3V IO levels. In case you want smaller IO levels you can use a device like LSF0102 or NCA9306 to translate to smaller levels.
 
-![](blob/main/pictures/Schematic.png?raw=true)
+![](https://raw.githubusercontent.com/xyphro/I3CBlaster/refs/heads/main/pictures/Schematic.png)
 
-![](blob/main/pictures/ExampleConnection.png?raw=true)
+![]( https://raw.githubusercontent.com/xyphro/I3CBlaster/refs/heads/main/pictures/ExampleConnection.png)
 
 ### Now you are fully ready to go!
 
@@ -89,7 +89,7 @@ Note that I3C Blaster supports the default Putty and Tera-term terminal emulatio
 
 Example Putty settings:
 
-![](blob/main/pictures/ExamplePuttySettings.png?raw=true)
+![](https://raw.githubusercontent.com/xyphro/I3CBlaster/refs/heads/main/pictures/ExamplePuttySettings.png)
 
 ## Commands
 
