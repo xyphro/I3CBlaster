@@ -10,7 +10,7 @@ I3CBlaster has 3 usage schemes:
   A powerful feature here is, that it has an autoidentification scheme to detect the COM port number automatically. No need to struggle with which of your 20 COM ports is from the I3CBlaster device :smiley:
 * Need I3C in your on RP2040 C projects? Also possible, just integrate the i3c_hl module and you are good to go!
 
-Although I have a HDR-DDR implementation running it already is not yet fully tested and so far SDR mode (12.5MBit/s) and the mandatory open drain is supported.
+Although I have already a HDR-DDR mode implementation running it is not yet fully tested and so far SDR mode (12.5MBit/s) and the mandatory open drain is supported.
 
 ![](https://raw.githubusercontent.com/xyphro/I3CBlaster/master/pictures/Puttysession.png)
 
@@ -28,7 +28,7 @@ But don't forget credits - this project took lots of late night work to make it 
 
 ## Why did I develop I3CBlaster?
 Because so far there is no easy and low $ solution available to learn I3C protocol or evaluate I3C target devices in the market.
-Having the ability to execute I3C transfers was for me a major step in understanding the I3C protocol and its many exceptions and hidden features and the reasons behind them. 
+Having the ability to execute I3C transfers was for me also a major step in understanding the I3C protocol and its many exceptions and hidden features and the reasons behind them. 
 
 # What is I3C?
 I3C is a successor protocol based on I2C, but enabling higher transfer rates.
@@ -40,6 +40,8 @@ It is also feasible to connect i2c and i3c devices on the same bus with limitati
 
 Another useful feature of I3C is the realization of the so called IBI feature: In-Band-Interrupts. I3C target devices have now the capability to raise an interrupt over the same 2 wires where it communicates with. There are 2 schemes implemented - one when the bus is busy - an arbitration based scheme and another one when the bus is idle.
 The IBI features is easy to understand from bus perspective, but can cause a bit of headaches for SW stacks due to out-of context occurrence within the same communication channel.
+
+Note that the IBI feature also only works in SDR transfer mode, wo whenever HDR modes are used and an IBI feature is required ensure to transition after transfers back to SDR mode with an HDR Exit condition.
 
 Some resources:
 
