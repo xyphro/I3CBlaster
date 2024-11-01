@@ -1,0 +1,23 @@
+{
+    "cmake.configureOnOpen": true,
+    "files.associations": {
+        "stdlib.h": "c",
+        "blink.pio.h": "c",
+        "pio_instructions.h": "c",
+        "random": "c",
+        "i3csdr.pio.h": "c",
+        "pio.h": "c",
+        "type_traits": "c",
+        "gpio.h": "c",
+        "sync.h": "c",
+        "i3c_hl.h": "c",
+        "clocks.h": "c",
+        "stdint.h": "c",
+        "stdbool.h": "c",
+        "ucli_helpers.h": "c",
+        "pico.h": "c",
+        "strings.h": "c",
+    },
+    "cortex-debug.variableUseNaturalFormat": false,
+    "C_Cpp.errorSquiggles": "disabled"
+}

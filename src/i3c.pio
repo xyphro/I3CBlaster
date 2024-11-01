@@ -1,0 +1,117 @@
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Statemachine for HDR-SDR mode - The i3c_hl module uses primarily this statemachine and dynamicall switches over 
+// to another one once an HDR mode transfer is required.
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+.program i3c
+.side_set 1 opt
+.wrap_target
+
+inst_parser:
+    pull block                     ; pull new instruction word
+    out pc, 5
+
+PUBLIC cmd_exec:
+    out exec, 16                   ; direct command execution
+    jmp inst_parser         
+
+PUBLIC cmd_stop:
+    out y, 10           side 0    ; SCL = LOW and  desired delay time (delay determines LOW phase duration)
+    set pins, 0                   ; SDA = LOW
+    set pindirs, 1             [4]; SDA = output, LOW
+stop_delay:    
+    jmp y--, stop_delay
+    nop                 side 1 [2]; SCL = 1
+    set pindirs, 0                ; SDA = HIGH
+    jmp inst_parser
+
+PUBLIC cmd_restart:
+    nop                 side 0 [0]; SCL = LOW
+    set pins, 1                   ; SDA = HIGH
+    set pindirs, 1             [4]; SDA = push pull mode (output)
+    nop                 side 1 [4]; SCL = HIGH
+    set pins, 0                [4]; SDA = LOW
+    jmp inst_parser
+
+PUBLIC cmd_scl0:
+    nop                 
+    jmp inst_parser    side 0 [0];
+
+; Bits: 5 instruction, 3 counter, 6* 
+PUBLIC cmd_xfer_bits:
+    out x, 3          
+    jmp fastentry       side 0
+nextbit:
+    nop                        [2]
+fastentry:
+    out pindirs, 1      side 0 [0]          ; bit 1 = pindir   falling edge         ; 0
+    out pins, 1         side 0 [0]          ; bit 0 = pinstate falling edge         ; 1
+        out y, 1                            ; bit 2 = opendrain delay (1=enable)
+        jmp !y, skipdelay
+        set y, 1               [3]
+delay:
+        jmp y--, delay         [7]
+skipdelay:        
+    in  pins, 1          [0]          
+    out pindirs, 1      side 1                    ; bit 3 = pindir   rising edge
+    jmp x-- nextbit            [0]
+
+; space for 1 instruction is left over here :-)
+
+.wrap
+
+
+
+
+
+
+
+.program i3c_helper_templates
+.side_set 1 opt
+    set pindirs, 1      side 1 [3] ; SDA=0, SCL = 1
+    out pindirs, 2      side 1
+    nop                 side 0     ; SCL 0
+    out pindirs, 1      [0]        ; set SDA direction
+    out pins,1          [0]        ; set SDA state
+    nop                 side 1 [0] ; SCL 1
+    
+
+
+% c-sdk {
+
+    #define I3CPIO_OPCODE_STOP_DELAY(delay)	                        ( ((uint32_t)(delay)<<5) | ((uint32_t)(i3c_offset_cmd_stop)) )
+
+    // Opcode helpers for interacting with PIO implementation "i3c"
+    #define I3CPIO_OPCODE_SCL0                                      ( i3c_offset_cmd_scl0 )
+    #define I3CPIO_OPCODE_SCL1                                      ( (i3c_helper_templates_program_instructions[5]<<5) | (uint32_t)i3c_offset_cmd_exec )
+    #define I3CPIO_OPCODE_SDADIR(direction)                         ( ((direction)<<21) | (i3c_helper_templates_program_instructions[3]<<5) | (uint32_t)i3c_offset_cmd_exec )
+    #define I3CPIO_OPCODE_SDASTATE(direction)                       ( ((direction)<<21) | (i3c_helper_templates_program_instructions[4]<<5) | (uint32_t)i3c_offset_cmd_exec )
+
+
+    #define I3CPIO_OPCODE_RESTART	                                ( i3c_offset_cmd_restart )
+    #define I3CPIO_OPCODE_START	                                    ( ((uint32_t)(i3c_helper_templates_program_instructions[0])<<5) | (uint32_t)i3c_offset_cmd_exec )
+    #define I3CPIO_OPCODE_STOP	                                    ( I3CPIO_OPCODE_STOP_DELAY(0) )
+    #define I3CPIO_OPCODE_SETDIR_SCLSDA_SCLHIGH(dirscl, dirsda)     (  (i3c_helper_templates_program_instructions[1]<<5) | ((uint32_t)(dirsda)<<(16+5)) | ((uint32_t)(dirscl)<<(6+16)) | (uint32_t)i3c_offset_cmd_exec )
+    #define I3CPIO_OPCODE_XFER(bitcount, val0, val1, val2, val3, val4, val5) ( ((uint32_t)i3c_offset_cmd_xfer_bits) | \
+                                                                               ((((uint32_t)bitcount)-1)<<5) | \
+                                                                               (((uint32_t)val0)<< 8) | \
+                                                                               (((uint32_t)val1)<<12) | \
+                                                                               (((uint32_t)val2)<<16) | \
+                                                                               (((uint32_t)val3)<<20) | \
+                                                                               (((uint32_t)val4)<<24) | \
+                                                                               (((uint32_t)val5)<<28)    )
+
+    // Functions to build bit pattern transfers
+    // bit 0 = pindir   falling edge
+    // bit 1 = pinstate falling edge
+    // bit 2 = opendrain delay (1=enable)
+    // bit 3 = pindir   rising edge
+    #define OD_WBIT(value)     ( (uint32_t)( (0u<<1) | ((((uint32_t)(value)^1))<<0) | ((((uint32_t)(value)^1))<<3) | (1u<<2) ) )
+    #define OD_RBIT            ( (uint32_t)( (0u<<1) | (0u<<0) | (0u<<3) | (1u<<2) ) )
+    #define SDR_WBITBACK(value)    ( (uint32_t)( ((value)<<1) | (1u<<0) | ((((uint32_t)(value)^1))<<3) | (0u<<2) ) )
+    #define OD_RACKBIT         ( (uint32_t)( (0u<<1) | (0u<<0) | (1u<<3) | (1u<<2) ) )
+    #define SDR_WBIT(value)    ( (uint32_t)( ((value)<<1) | (1u<<0) | (1u<<3) | (0u<<2) ) )
+    #define SDR_RBIT(endxfer)  ( (uint32_t)( (0u<<1) | (0u<<0) | (((uint32_t)(endxfer))<<3) | (0u<<2) ) )
+
+%}

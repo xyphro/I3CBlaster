@@ -1,0 +1,502 @@
+#include <stdio.h>
+#include <ctype.h>
+#include "pico/stdlib.h"
+#include "hardware/clocks.h"
+#include "hardware/gpio.h"
+#include "i3c_hl.h"
+#include "ucli.h"
+#include "tusb.h"
+#include <stdlib.h>
+
+#include "hardware/pll.h"
+#include "hardware/structs/pll.h"
+#include "hardware/structs/clocks.h"
+
+/*
+MIT License
+
+Copyright (c) 2024 xyphro, Kai Gossner, xyphro@gmail.com
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+*/
+
+
+static void parse_array_string(const char *str, uint8_t *ppayload, uint32_t *ppayloadlen)
+{
+	uint8_t payload[1024];
+	uint32_t maxpayloadlen = *ppayloadlen;
+	uint32_t payloadlen=0;
+	const char *pstart, *pstr;
+
+	if (str)
+	{
+		bool stop = false;
+		pstr = str;
+		pstart = str;
+		do
+		{
+			if ((*pstart != ',') && (*pstart))
+			{
+				int32_t num = strtol(pstart, (char **)&(pstr), 0);
+				if ((num >= 0) && (num <= 0xff))
+				{
+					if (payloadlen < maxpayloadlen)
+					{
+						ppayload[payloadlen++] = (uint8_t)num;
+					}
+					else
+					{
+						ucli_error("payload too long");
+						stop = true;
+					}
+					
+				}
+				else
+				{
+					ucli_error("payload byte values have to be in range 0..255");
+					stop = true;
+				}
+				//pstr++;
+				pstart = pstr;
+			}
+			else if (*pstart)
+			{
+				pstr++;
+				pstart++;
+			}
+		}
+		while (*pstr && !stop); // while end of string is not reached
+	}
+	*ppayloadlen = payloadlen;
+}
+
+static void parse_array_string_uint16(const char *str, uint16_t *ppayload, uint32_t *ppayloadlen)
+{
+	uint8_t payload[1024];
+	uint32_t maxpayloadlen = *ppayloadlen;
+	uint32_t payloadlen=0;
+	const char *pstart, *pstr;
+
+	if (str)
+	{
+		bool stop = false;
+		pstr = str;
+		pstart = str;
+		do
+		{
+			if ((*pstart != ',') && (*pstart))
+			{
+				int32_t num = strtol(pstart, (char **)&(pstr), 0);
+				if ((num >= 0) && (num <= 0xffff))
+				{
+					if (payloadlen < maxpayloadlen)
+					{
+						ppayload[payloadlen++] = (uint16_t)num;
+					}
+					else
+					{
+						ucli_error("payload too long");
+						stop = true;
+					}
+					
+				}
+				else
+				{
+					ucli_error("payload byte values have to be in range 0..255");
+					stop = true;
+				}
+				//pstr++;
+				pstart = pstr;
+			}
+			else if (*pstart)
+			{
+				pstr++;
+				pstart++;
+			}
+		}
+		while (*pstr && !stop); // while end of string is not reached
+	}
+	*ppayloadlen = payloadlen;
+}
+
+
+void ucli_print(const char *str)
+{
+	printf("%s", str);
+}
+
+UCLI_COMMAND_DEF(i3c_sdr_write, "Execute a private write transfer to a target",
+    UCLI_INT_ARG_DEF(addr, "The 7-Bit address of the target"),
+    UCLI_OPTIONAL_STR_ARG_DEF(payload, "Optional payload data - byte values seperated with comma without whitespaces (e.g. 0x12,0x43,0x56)")
+)
+{
+	uint8_t payload[1024];
+	uint32_t payloadlen=sizeof(payload);
+	i3c_hl_status_t retcode;
+
+	parse_array_string(args->payload, payload, &payloadlen);
+	
+	retcode = i3c_hl_sdr_privwrite(args->addr, payload, payloadlen);
+	printf("%s\r\n", i3c_hl_get_errorstring(retcode));
+}
+
+UCLI_COMMAND_DEF(i3c_sdr_ccc_bc_write, "Execute a ccc broadcast write transfer",
+    UCLI_STR_ARG_DEF(payload, "The data payload to write in the broadcast transfer - byte values seperated with comma without whitespaces (e.g. 0x12,0x43,0x56)")
+)
+{
+	uint8_t payload[1024];
+	uint32_t payloadlen=sizeof(payload);
+	i3c_hl_status_t retcode;
+
+	parse_array_string(args->payload, payload, &payloadlen);
+
+	retcode = i3c_hl_sdr_ccc_broadcast_write(payload, payloadlen);
+	printf("%s\r\n", i3c_hl_get_errorstring(retcode));
+}
+
+UCLI_COMMAND_DEF(i3c_sdr_ccc_direct_write, "Execute a ccc direct write transfer",
+    UCLI_INT_ARG_DEF(addr, "The 7-Bit address of the target"),
+    UCLI_STR_ARG_DEF(bc_payload, "The data payload to write during broadcast phase - byte values seperated with comma without whitespaces (e.g. 0x12,0x43,0x56)"),
+    UCLI_STR_ARG_DEF(dir_payload, "The data payload to write during slave addressing phase - byte values seperated with comma without whitespaces (e.g. 0x12,0x43,0x56)")
+)
+{
+	uint8_t  bc_payload[1024];
+	uint32_t bc_payloadlen=sizeof(bc_payload);
+	uint8_t  direct_payload[1024];
+	uint32_t direct_payloadlen=sizeof(direct_payload);
+	i3c_hl_status_t retcode;
+
+	parse_array_string(args->bc_payload, bc_payload, &bc_payloadlen);
+	parse_array_string(args->dir_payload, direct_payload, &direct_payloadlen);
+	retcode =  i3c_hl_sdr_ccc_direct_write(bc_payload, bc_payloadlen,
+												args->addr, direct_payload, direct_payloadlen);
+	printf("%s\r\n", i3c_hl_get_errorstring(retcode));
+}
+
+UCLI_COMMAND_DEF(i3c_sdr_ccc_direct_read, "Execute a ccc direct read transfer",
+    UCLI_INT_ARG_DEF(addr, "The 7-Bit address of the target"),
+    UCLI_STR_ARG_DEF(payload, "The data payload to write during write phase of transfer - byte values seperated with comma without whitespaces (e.g. 0x12,0x43,0x56)"),
+    UCLI_INT_ARG_DEF(len, "The count of bytes to read")
+)
+{
+	uint8_t  payload[1024];
+	uint32_t payloadlen=sizeof(payload);
+	uint8_t  rxdata[1024];
+	uint32_t rxlen;
+	i3c_hl_status_t retcode;
+
+	rxlen = args->len;
+	parse_array_string(args->payload, payload, &payloadlen);
+	retcode = i3c_hl_sdr_ccc_direct_read(payload, payloadlen, args->addr, rxdata, &rxlen);
+	printf("%s", i3c_hl_get_errorstring(retcode));
+	if (retcode == i3c_hl_status_ok)
+	{
+		for (uint32_t i=0; i<rxlen; i++)
+			printf(",0x%02x", rxdata[i]);
+	}
+	printf("\r\n");
+}
+
+UCLI_COMMAND_DEF(i3c_sdr_writeread, "Execute a private combined write read transfer from a target",
+    UCLI_INT_ARG_DEF(addr, "The 7-Bit address of the target"),
+    UCLI_STR_ARG_DEF(payload, "The data payload to write during write phase of transfer"),
+    UCLI_INT_ARG_DEF(len, "The count of bytes to read (0..255)")
+)
+{
+	uint8_t  payload[1024];
+	uint32_t payloadlen=sizeof(payload);
+	uint8_t  rxdata[1024];
+	uint32_t rxlen;
+	i3c_hl_status_t retcode;
+
+	rxlen = args->len;
+	parse_array_string(args->payload, payload, &payloadlen);
+	retcode = i3c_hl_sdr_privwriteread(args->addr, payload, payloadlen, rxdata, &rxlen);
+	printf("%s", i3c_hl_get_errorstring(retcode));
+	if (retcode == i3c_hl_status_ok)
+	{
+		for (uint32_t i=0; i<rxlen; i++)
+			printf(",0x%02x", rxdata[i]);
+	}
+	printf("\r\n");
+}
+
+UCLI_COMMAND_DEF(i3c_sdr_read, "Execute a private read transfer from a target",
+    UCLI_INT_ARG_DEF(addr, "The 7-Bit address of the target"),
+    UCLI_INT_ARG_DEF(len, "The count of bytes to read (0..255)")
+)
+{
+	bool success;
+	const char *pstart, *pstr;
+	uint8_t  payload[1024];
+	uint32_t payloadlen=0;
+	i3c_hl_status_t retcode;
+
+	payloadlen = args->len;
+	retcode = i3c_hl_sdr_privread(args->addr, payload, &payloadlen);
+	printf("%s", i3c_hl_get_errorstring(retcode));
+	if (retcode == i3c_hl_status_ok)
+	{
+		for (uint32_t i=0; i<payloadlen; i++)
+			printf(",0x%02x", payload[i]);
+	}
+	printf("\r\n");
+}
+
+
+UCLI_COMMAND_DEF(i3c_rstdaa, "Execute i3crstdaa broadcast transfer. This will unassign all targets dynamic addresses"
+)
+{
+	i3c_hl_rstdaa();
+	printf("%s\r\n", i3c_hl_get_errorstring(i3c_hl_status_ok));
+}
+
+UCLI_COMMAND_DEF(i3c_scan, "Scan for available i3c addreses"
+)
+{
+	bool notfirst = false;
+	printf("%s,", i3c_hl_get_errorstring(i3c_hl_status_ok));
+	for (uint8_t addr=0; addr<0x80; addr++)
+	{
+		if ( (addr != 0x7F) && (addr != 0x7C) && (addr != 0x7A) && (addr != 0x76) && (addr != 0x6E) && (addr != 0x5E) && (addr != 0x3E) )
+		{
+			if ( i3c_hl_checkack(addr) == i3c_hl_status_ok )
+			{
+				if (notfirst)
+					printf(",");
+				printf("0x%02x", addr);
+				notfirst = true;
+			}
+		}
+	}
+	i3c_hl_arbhdronly(); // free the bus
+	printf("\r\n");
+}
+
+
+
+UCLI_COMMAND_DEF(i3c_entdaa, "Execute i3c entdaa procedure",
+    UCLI_INT_ARG_DEF(addr, "The 7-Bit address to assign to the target")
+)
+{
+	uint8_t id[8];
+	i3c_hl_status_t retcode;
+	if ( (args->addr < 0) || (args->addr >= 0x80) )
+	{
+		ucli_error("address has to be in range  0..0x7f");
+		return;
+	}
+	retcode = i3c_hl_entdaa((uint8_t)args->addr, id);
+	printf("%s", i3c_hl_get_errorstring(retcode));
+	if ( retcode == i3c_hl_status_ok )
+	{
+		for (int i=0; i<8; i++)
+		{
+			printf(",0x%02x", id[i]);
+		}
+	}
+	printf("\r\n");
+}
+
+UCLI_COMMAND_DEF(i3c_clk, "Set I3C clock frequency",
+    UCLI_INT_ARG_DEF(freq_khz, "The Clock frequency as integer number in units of kHz. Valid range: 49..12500")
+)
+{
+	i3c_hl_status_t retcode;
+	retcode = i3c_hl_set_clkrate(args->freq_khz);
+	printf("%s\r\n", i3c_hl_get_errorstring(retcode));
+}
+
+UCLI_COMMAND_DEF(i3c_targetreset, "Execute a Targetreset sequence on I3C Bus."
+)
+{
+	i3c_hl_status_t retcode;
+	retcode = i3c_hl_targetreset();
+	printf("%s\r\n", i3c_hl_get_errorstring(retcode));
+}
+
+
+UCLI_COMMAND_DEF(i3c_poll, "Poll / handle interrupt"
+)
+{
+	i3c_hl_status_t retcode;
+	uint8_t ibidata[16];
+	uint32_t ibidatalen;
+
+	ibidatalen = sizeof(ibidata);
+    retcode = i3c_hl_poll(ibidata, &ibidatalen);
+	printf("%s", i3c_hl_get_errorstring(retcode));
+	if (retcode == i3c_hl_status_ok)
+	{
+		uint32_t cnt=0;
+		while (ibidatalen--)
+		{
+			printf(",0x%02x", ibidata[cnt++]);
+		}		
+	}
+	printf("\r\n");
+}
+
+
+UCLI_COMMAND_DEF(info, "Show information about this version")
+{
+    ucli_print("Supported protocols: I3C SDR, I3C OD\r\n");
+	printf("Automated command mode:\r\n");
+	printf("-----------------------\r\n");
+	printf("By sending @ as first character for each command, there is \r\nno character echoed back for easier automation fromout PC\r\n" );
+}
+
+UCLI_COMMAND_DEF(clkinfo, "Show information of the MCUs clock setup")
+{
+    uint f_pll_sys  = frequency_count_khz(CLOCKS_FC0_SRC_VALUE_PLL_SYS_CLKSRC_PRIMARY);
+    uint f_pll_usb  = frequency_count_khz(CLOCKS_FC0_SRC_VALUE_PLL_USB_CLKSRC_PRIMARY);
+    uint f_rosc     = frequency_count_khz(CLOCKS_FC0_SRC_VALUE_ROSC_CLKSRC);
+    uint f_clk_sys  = frequency_count_khz(CLOCKS_FC0_SRC_VALUE_CLK_SYS);
+    uint f_clk_peri = frequency_count_khz(CLOCKS_FC0_SRC_VALUE_CLK_PERI);
+    uint f_clk_usb  = frequency_count_khz(CLOCKS_FC0_SRC_VALUE_CLK_USB);
+    uint f_clk_adc  = frequency_count_khz(CLOCKS_FC0_SRC_VALUE_CLK_ADC);
+    uint f_clk_rtc  = frequency_count_khz(CLOCKS_FC0_SRC_VALUE_CLK_RTC);
+
+    printf("pll_sys  = %dkHz\n", f_pll_sys);
+    printf("pll_usb  = %dkHz\n", f_pll_usb);
+    printf("rosc     = %dkHz\n", f_rosc);
+    printf("clk_sys  = %dkHz\n", f_clk_sys);
+    printf("clk_peri = %dkHz\n", f_clk_peri);
+    printf("clk_usb  = %dkHz\n", f_clk_usb);
+    printf("clk_adc  = %dkHz\n", f_clk_adc);
+    printf("clk_rtc  = %dkHz\n", f_clk_rtc);
+}
+
+UCLI_COMMAND_DEF(gpio_write, "Sets a GPIO pin state and direction",
+    UCLI_INT_ARG_DEF(port, "The GPIO pin number (0..29)"),
+	UCLI_STR_ARG_DEF(state, "0 to set pin to OUTPUT LOW, 1 to set pin to OUTPUT HIGH, Z to set pin to tristate (input)")
+)
+{
+	i3c_hl_status_t retcode = i3c_hl_status_ok;
+
+	if ( (strlen(args->state) == 1) && (args->port >= 0) && (args->port < 32) )
+	{
+		char c = toupper(args->state[0]);
+		if (c == '0')
+		{
+			gpio_put(args->port, 0);
+			gpio_set_dir(args->port, true);
+		}
+		else if (c == '1')
+		{
+			gpio_put(args->port, 1);
+			gpio_set_dir(args->port, true);
+		}
+		else if (c == 'Z')
+		{
+			gpio_set_dir(args->port, false);
+		}
+		else
+		{
+			retcode = i3c_hl_status_param_outofrange;
+		}
+	}
+	else
+	{
+		retcode = i3c_hl_status_param_outofrange;
+	}
+	printf("%s\r\n", i3c_hl_get_errorstring(retcode));
+}
+
+UCLI_COMMAND_DEF(gpio_read, "Get gpio state. If no parameter is given a 32 Bit number containing all GPIOs states is returned",
+    UCLI_OPTIONAL_INT_ARG_DEF(gpionum, "Optional gpio number to read GPIO state from (0..29)")
+)
+{
+	uint32_t gpiostate, i;
+	i3c_hl_status_t retcode = i3c_hl_status_ok;
+	gpiostate = 0;
+	for (i=0; i<30; i++)
+	{
+		if ((iobank0_hw->io[i].status & IO_BANK0_GPIO0_STATUS_INFROMPAD_BITS) >> IO_BANK0_GPIO0_STATUS_INFROMPAD_LSB > 0)
+		{
+			gpiostate |= (1<<i);
+		}
+	}
+	if (args->gpionum != UCLI_INT_ARG_DEFAULT)
+	{ 
+		if ( (args->gpionum > 31) || (args->gpionum < 0) )
+			retcode = i3c_hl_status_param_outofrange;
+		gpiostate = (gpiostate >> args->gpionum) & 1;
+	}
+	printf("%s,%d\r\n", i3c_hl_get_errorstring(retcode), gpiostate);
+}
+
+bool usb_newly_connected(void)
+{
+	static bool was_connected = false;
+	bool is_connected, result;
+	is_connected = tud_cdc_connected();
+
+	result = is_connected && !was_connected;
+	was_connected = is_connected;
+	return result;
+}
+
+int main()
+{
+	stdio_init_all();
+
+	// initialize gpio 0..15 as general purpose GPIOs with state = input
+	for (uint32_t gpio=0; gpio < 16; gpio++)
+	{
+		gpio_init(gpio);
+	}
+
+    ucli_init();
+    ucli_cmd_register(gpio_write);
+	ucli_cmd_register(gpio_read);
+    ucli_cmd_register(info);	
+	ucli_cmd_register(i3c_targetreset);
+	ucli_cmd_register(i3c_clk);
+	ucli_cmd_register(i3c_scan);
+	ucli_cmd_register(i3c_entdaa);
+	ucli_cmd_register(i3c_rstdaa);
+	ucli_cmd_register(i3c_sdr_write);
+	ucli_cmd_register(i3c_sdr_read);
+	ucli_cmd_register(i3c_sdr_writeread);
+	ucli_cmd_register(i3c_sdr_ccc_bc_write);
+	ucli_cmd_register(i3c_sdr_ccc_direct_write);
+	ucli_cmd_register(i3c_sdr_ccc_direct_read);
+	ucli_cmd_register(i3c_poll);
+	
+	// initialize i3c to use GPIO16=SDA and GPIO17=SCL
+	i3c_init(16);
+
+	while (1) {
+		if (usb_newly_connected())
+		{
+			sleep_ms(500);
+			ucli_init(); // this reprints the welcome message
+		}
+		else if (!tud_cdc_connected())
+		{ // not connected
+			sleep_ms(10);
+		}
+
+		// put received char from stdin to ucli lib
+		int ch = getchar_timeout_us(0);
+		if (ch >= 0)
+        	ucli_process((char)ch);
+	}
+}
