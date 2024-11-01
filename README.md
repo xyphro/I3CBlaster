@@ -1,7 +1,7 @@
 # I3CBlaster
 
 ## What is I3CBlaster?
-I3C Blaster is a firmware image you can flash to your Raspberry PI PICO board to let it act as USB to I3C bridge. Simply add 2 pullup resistors and you are ready to go.
+I3C Blaster is a firmware image you can flash to your Raspberry PI PICO board to let it act as USB to I3C converter. Simply add 2 pullup resistors and you are ready to go.
 
 I3CBlaster has 3 usage schemes:  
 * Interactive using a terminal program like Tera-term or Putty
@@ -16,14 +16,15 @@ Although I have a HDR-DDR implementation running it already is not yet fully tes
 
 ## In need of an I3C Analyzer?
 
-Have a look at my I3C daughter project, which is a Saleae Logic Analyzer plugin to decode I3C ODR, I3C SDR and I3C HDR transfers:
+Have a look at my I3C daughter project, which is a Saleae Logic Analyzer plugin to decode I3C ODR, I3C SDR and I3C HDR-DDR transfers:
 <a href="https://github.com/xyphro/XyphroLabs-I3C-Saleae-Protocol-Analyzer" target="_blank">https://github.com/xyphro/XyphroLabs-I3C-Saleae-Protocol-Analyzer</a> 
 
 ### What else is this?
 It is an I3C controller driver code based on a single RP2040 PIO. Feel free to reuse it in other projects!
 The i3c_hl.c or .h files provide an interface to all kind of different I3C transfer types. 
 
-To include it in your projects as a module, simply use i3c_hl.h i3c_hl.c and i3c.pio. i3c_hl.h exposes all the i3c API functions for the i3c driver. But don't forget credits - this project took lots of late night work to make it work well :-)
+To include it in your projects as a module, simply use i3c_hl.h i3c_hl.c and i3c.pio. i3c_hl.h exposes all the i3c API functions for the i3c driver. 
+But don't forget credits - this project took lots of late night work to make it work well :-)
 
 ## Why did I develop I3CBlaster?
 Because so far there is no easy and low $ solution available to learn I3C protocol or evaluate I3C target devices in the market.
@@ -33,7 +34,7 @@ Having the ability to execute I3C transfers was for me a major step in understan
 I3C is a successor protocol based on I2C, but enabling higher transfer rates.
 There are multiple transfer modes defined using SDR push-pull mode transfers, 2 different kinds of DDR modes are part of the public BASIC I3C specification. The Full I3C specification even has multi lane support included enabling transfer rates over 100MBit/s.
 
-It maintains in a very limited way compatibility to the I2C protocol. I personally think that this was not a very wise choice, because a lot of legacy was pulled into the protocol creating complexity. However, it might simplify the understanding of the protocol for new users.
+It maintains in a ~~very~~ limited way compatibility to the I2C protocol. I personally think that this was not a very wise choice, because a lot of legacy was pulled into the protocol creating complexity. However, it might simplify the understanding of the protocol for new users.
 
 It is also feasible to connect i2c and i3c devices on the same bus with limitations on max. capacitive load (50pF / 100pF) or max. datarate. Similar to i2c a degradation of the i2c clock frequency to cope with higher capacitive load is possible.
 
@@ -50,7 +51,7 @@ Some resources:
 # So: How do I get this stuff up and running?
 Quite easy, follow these steps:
 ## Step 1: Find a Raspberry PI Pico board
-Check your drawers, old projects or simply order a new one of these $4 boards :-)
+Check your drawers, old projects or simply order one <a href="https://www.mouser.de/ProductDetail/Raspberry-Pi/SC0915?qs=T%252BzbugeAwjgnLi4azxXVFA%3D%3D" target="_blank">these $4 boards</a> :-)
 ## Step 2: Download the firmware from this repository
 Enter the bin folder and download the I3CBlaster.uf2 file
 ## Step 3: program the firmware to RP2040
@@ -80,10 +81,10 @@ Note, that the I3C bus operates on 3.3V IO levels. In case you want smaller IO l
 
 # Usage mode: Interactive usage using terminal program
 
-When I3CBlaster is connected to the PC you see a COM / TTY port, simply connect to it using Putty or Tera-term. The exact baudrate paramter/encoding settings don't matter, because this is a virtual com port.
+When I3CBlaster is connected to the PC you see a COM / TTY port, simply connect to it using Putty or Tera-term. The exact baud-rate parameter/encoding settings don't matter, because this is a virtual com port.
 After connecting a welcome message is shown. Press once the F1 key to help the command line interface identify the terminal emulation method. Without this e.g. the del/backspace key might behave unexpected.
 
-Tab autocompletion is supported - you can do in-line edits in your command, etc. Just like in e.g. an SSH session or command line interface.
+Tab auto completion is supported - you can do in-line edits in your command, etc. Just like in e.g. an SSH session or command line interface.
 
 Note that I3C Blaster supports the default Putty and Tera-term terminal emulations. It is not tested with other terminal programs and features like the in-line editing might go wrong.
 
