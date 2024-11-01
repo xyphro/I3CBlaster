@@ -2,6 +2,7 @@ src/build
 blob/
 _nonpublic
 python/__pycache__
+pictures/thumbs.db
 
 # Prerequisites
 *.d
