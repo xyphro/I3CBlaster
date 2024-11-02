@@ -210,6 +210,9 @@ The i3c_hl implementation using PIO is supporting the i3c address phase arbitrat
 
 A transfer will always start with an arbitration header written in Open Drain mode. This is the only flexible method which supports all I3C environments. Why? Think about a device wants to raise an IBI and does that at a point of time where a private read to the same I3C device is executed: The controller is not capable to differentiate in that case between if an IBI with payload was received or the actual read data. For limited well known environments I3C allows also tweaked performance optimized addressing phases, but here I did not support them for the reason of flexibility.
 
+Although you see 2 pullup resistors have to be added, the lines get driven in push-pull mode during SDR phases.
+I3C does not require a pullup on the SCL line as it is driven by the master in push-pull mode, still I add here one. Why? Because I2C functions will get added to this too soon and I2C requires a pullup resistor.
+
 Something very important to know on I3C protocol is that the ACK phase is different to I2C ACK. On I2C only the state of the line during HIGH phase is used for acknowledgment information. On I3C the ACK - although it looks very similar does signal if "more bytes can be transferred" and the Controller can signal also back if it want to continue transfering more data bytes.
 
 **Pull requests are very welcome!**
