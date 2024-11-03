@@ -16,7 +16,7 @@ Although I have already a HDR-DDR mode implementation running it is not yet full
 
 ## In need of an I3C Analyzer?
 
-Have a look at my I3C daughter project, which is a Saleae Logic Analyzer plugin to decode I3C ODR, I3C SDR and I3C HDR-DDR transfers:
+Have a look at my I3C daughter project, which is a Saleae Logic Analyzer plugin to decode I3C OD, I3C SDR and I3C HDR-DDR transfers:
 <a href="https://github.com/xyphro/XyphroLabs-I3C-Saleae-Protocol-Analyzer" target="_blank">https://github.com/xyphro/XyphroLabs-I3C-Saleae-Protocol-Analyzer</a> 
 
 ### What else is this?
@@ -31,17 +31,18 @@ Because so far there is no easy and low $ solution available to learn I3C protoc
 Having the ability to execute I3C transfers was for me also a major step in understanding the I3C protocol and its many exceptions and hidden features and the reasons behind them. 
 
 # What is I3C?
-I3C is a successor protocol based on I2C, but enabling higher transfer rates.
-There are multiple transfer modes defined using SDR push-pull mode transfers, 2 different kinds of DDR modes are part of the public BASIC I3C specification. The Full I3C specification even has multi lane support included enabling transfer rates over 100MBit/s.
+I3C is a successor protocol based on I2C, but enabling higher transfer rates. It pulled in many mechanisms from the less well known i2c speed modes 3.4MHz (HS), 5 MHz or 10 MHZ.
+There are multiple transfer modes defined using SDR push-pull mode transfers, 2 different kinds of DDR modes are part of the public BASIC I3C specification. The full I3C specification even has multi lane support included enabling transfer rates over 100MBit/s and 2 flavors of called ternary modes where also the clock line is used to transfer data.
 
-It maintains in a ~~very~~ limited way compatibility to the I2C protocol. I personally think that this was not a very wise choice, because a lot of legacy was pulled into the protocol creating complexity. However, it might simplify the understanding of the protocol for new users.
+It maintains in a limited way compatibility to the I2C protocol. This legacy support simplifies the learning curve for new users, but creates complexity in the overall protocol definition.   
+Clock stretching devices, Multi master arbitration are not supported, a maximum of  about 5 I2C devices on a single bus segment are the most dominant limitations for i2c usage on i3c busses.
 
-It is also feasible to connect i2c and i3c devices on the same bus with limitations on max. capacitive load (50pF / 100pF) or max. datarate. Similar to i2c a degradation of the i2c clock frequency to cope with higher capacitive load is possible.
+It is also feasible to connect i2c and i3c devices on the same bus with limitations on max. capacitive load (50pF / 100pF) or max. datarate. Similar to i2c a degradation of the i2c clock frequency to cope with higher capacitive load is possible as function of drive strength.
 
-Another useful feature of I3C is the realization of the so called IBI feature: In-Band-Interrupts. I3C target devices have now the capability to raise an interrupt over the same 2 wires where it communicates with. There are 2 schemes implemented - one when the bus is busy - an arbitration based scheme and another one when the bus is idle.
+Another very useful feature of I3C is the realization of the so called IBI feature: In-Band-Interrupts. I3C target devices have now the capability to raise an interrupt over the same 2 wires where it communicates with. There are 2 schemes implemented - one when the bus is busy and arbitration based scheme and another one when the bus is idle.
 The IBI features is easy to understand from bus perspective, but can cause a bit of headaches for SW stacks due to out-of context occurrence within the same communication channel.
 
-Note that the IBI feature also only works in SDR transfer mode, wo whenever HDR modes are used and an IBI feature is required ensure to transition after transfers back to SDR mode with an HDR Exit condition.
+Note that according to I3C protocol definition the IBI feature only works in SDR transfer mode, so whenever HDR modes are used and an IBI feature is required ensure to transition after transfers back to SDR mode with an HDR Exit condition.
 
 Some resources:
 
@@ -144,7 +145,7 @@ OK(0),0x04,0x6a,0x00,0x00,0x00,0x00,0x27,0xa0
 Now scan the i3c bus for available i3c addresses:
 ```plaintext
 > i3c_scan
-0x30,0x7e
+OK(0),0x30,0x7e
 ```
 As we can see the device is detected on address 0x30 and also the broadcast address 0x7E.
 
@@ -203,7 +204,6 @@ if len(devices) > 0:
     print('result: ', data)
 ```
 
-
 # Finally: The good to knows
 
 The i3c_hl implementation using PIO is supporting the i3c address phase arbitration scheme.
@@ -218,6 +218,8 @@ Something very important to know on I3C protocol is that the ACK phase is differ
 **Pull requests are very welcome!**
 
 What about e.g. making a Micropython module out of it? this would add a lot of value and I'd love to see that coming.
+
+*(Update 3rd November 2024: I started looking into it and it seems very feasible to create a .MPY module which can be imported like a normal python module. The difficulty lies into combining the MakeFile based system with the CMAKE based PICO SDK build. This will also likely be the case we don't see that many .MPY modules for RP2040. A bit more complex Frankenstein approach has to be me made... But I'll look into it further).*
 
 **Feedback very welcome -> See discussion section or for problems: File a ticket in issues section!**
 
