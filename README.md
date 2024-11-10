@@ -242,4 +242,4 @@ This development is done by an individual contributor and not done by or related
 
 In case MIPI Aliance is not OK that I use the I3C term here contact me under "xyphro at gmail.com" and I rename it to something else following what has been done with I2C for many years resulting in "style flower analogously" like TWI (two wire interface) or others.
 
-Project home address: <a href="https://xyphro.github.io/I3CBlaster/">https://xyphro.github.io/I3CBlaster/</a>
+Project home address: <a href="https://github.com/xyphro/I3CBlaster">https://github.com/xyphro/I3CBlaster</a>
