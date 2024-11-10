@@ -57,11 +57,13 @@ Quite easy, follow these steps:
 Check your drawers, old projects or simply order one <a href="https://www.mouser.de/ProductDetail/Raspberry-Pi/SC0915?qs=T%252BzbugeAwjgnLi4azxXVFA%3D%3D" target="_blank">these $4 boards</a> :-)
 ## Step 2: Download the firmware from this repository
 Enter the bin folder and download the I3CBlaster.uf2 file
+
 ## Step 3: program the firmware to RP2040
 * Ensure the USB cable is not connected.
 * Press and hold the BOOTSEL button on the Raspberry PI Pico board.
 * Then connect the USB cable to your PC.
 * Now you can release the BOOTSEL button
+* Download the I3CBlaster.uf2 file from this page: <a href="https://github.com/xyphro/I3CBlaster">https://github.com/xyphro/I3CBlaster</a>
 * A flash drive should have appeard on your PC. Drag and drop the previously downloaded I3CBlaster.uf2 file on this drive. This will start the programming. Once done, the FLASH drive removed automatically and the firmware is READY TO USE. Congrats! :-)
 
 ## Step 4: Hardware side work
@@ -239,3 +241,5 @@ I3C is a trademark of MIPI Aliance, MIPI is a trademark of MIPI Aliance.
 This development is done by an individual contributor and not done by or related to MIPI Aliance.
 
 In case MIPI Aliance is not OK that I use the I3C term here contact me under "xyphro at gmail.com" and I rename it to something else following what has been done with I2C for many years resulting in "style flower analogously" like TWI (two wire interface) or others.
+
+Project home address: <a href="https://xyphro.github.io/I3CBlaster/">https://xyphro.github.io/I3CBlaster/</a>
