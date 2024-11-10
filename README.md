@@ -63,7 +63,7 @@ Enter the bin folder and download the I3CBlaster.uf2 file
 * Press and hold the BOOTSEL button on the Raspberry PI Pico board.
 * Then connect the USB cable to your PC.
 * Now you can release the BOOTSEL button
-* Download the I3CBlaster.uf2 file from this page: <a href="https://github.com/xyphro/I3CBlaster">https://github.com/xyphro/I3CBlaster</a>
+* Download the I3CBlaster.uf2 file from this page: <a href="https://github.com/xyphro/I3CBlaster/bin">https://github.com/xyphro/I3CBlaster/bin</a>
 * A flash drive should have appeard on your PC. Drag and drop the previously downloaded I3CBlaster.uf2 file on this drive. This will start the programming. Once done, the FLASH drive removed automatically and the firmware is READY TO USE. Congrats! :-)
 
 ## Step 4: Hardware side work
