@@ -13,7 +13,7 @@ I3CBlaster has 3 usage schemes:
 ![](https://raw.githubusercontent.com/xyphro/I3CBlaster/master/pictures/Puttysession.png)
 
 **Right before New-Year 2025 update**: HDR-DDR transfers got added :sunglasses:  
-I only have V1.0 HDR-DDR capable target devices, so testing focused on that. But aspects from V1.1 were also added. In case you start looking into HDR-DDR first time, please look into ENDXFER CCC documentation, as quite some extensions were introduced in V1.1 spec version. Whenever I get access to a V1.1 capable target, I'll extend my testing.
+I only have V1.0 HDR-DDR capable target devices, so testing focused on that. But all aspects from V1.1 were also added. In case you start looking into HDR-DDR first time, please look into ENDXFER CCC documentation and i3c_ddr_config function, as quite some extensions were introduced in V1.1 spec version. Whenever I get access to a V1.1 capable target, I'll extend my testing.
 
 Next planned step before doing further SW extensions is a level translator hardware and extension of the binary to the tiny <a href="https://www.seeedstudio.com/XIAO-RP2040-v1-0-p-5026.html" target="_blank">Seeedstudio Xiao RP2040 boards</a>.
 
@@ -22,11 +22,13 @@ Upcoming SW changes will include functional extensions, but first an instantiati
 ## What is the difference to commercial products?
 
 A bitbanged or here HW supported bitbanged I3C master will never get exactly to the percentage of bus utilization of a real HW I3C master.
-While the implementation was targeted to be efficient here, there are phases where a PIO statemachine to CPU interaction will "pause" the bus for short times, especially for HDR-DDR transfers. Have a look at the demo code section below to download a captured waveform which allows you to zoom into the timing details. Note, that those pauses are ensured to occur in phases where SCL is low, such that the I3C timings are not violated, which is important for mixed bus scenarios.
+While the implementation was targeted to be efficient here, there are phases where a PIO statemachine to CPU interaction will "pause" the bus for short times, especially for HDR-DDR transfers. The peak i3c clock frequency of 12.5MHz is reached in this solution. Have a look at the demo code section below to download a captured waveform which allows you to zoom into the timing details. Note, that those pauses are ensured to occur in phases where SCL is low, such that the I3C timings are not violated, which is important for mixed bus scenarios.
 
-A bitbanged solution like the one here can enable you to modify the its code for failure insertion to test the robustness of a target. E.g. you can send a wrong CRC value or parity on purpose, generate unexpected bus conditions, etc.
+A bitbanged solution like the one here can enable you to modify its code for failure insertion to test the robustness of a target. E.g. you can send a wrong CRC value or parity on purpose, generate unexpected bus conditions, etc.
 
 So it might not be an exact 100% replacement of commercial tools, but can be a good step for very initial tests/protocol investigation or later extension with failure insertion methods.
+
+The USB interface is here a CDC based UART, as delivered by Raspberry PI SDK. This solution is a bit inefficient compared to a dedicated custom solution, but enables maximum usability and extendability for the community.
 
 ## In need of an I3C Analyzer?
 
@@ -96,6 +98,12 @@ Note, that the I3C bus operates on 3.3V IO levels. In case you want smaller IO l
 
 ![](https://raw.githubusercontent.com/xyphro/I3CBlaster/master/pictures/ExampleConnection.png)
 
+Why did I use pullup resistors, does I3C require them?
+An I3C does not need permanently enabled pullup resistors. An I3C Bus controller is keeping SCL permanently in push-pull mode and SDA will have a pullup-resistor which is enabled/disabled by the I3C controller IP on the fly at locations where the pullup is required. This maximizes power efficiency.
+But this solution here will require external level translators to enable useability with external targets. The advantage of not requiring permanently enabled pullup-resistor is gone as soon as level translation is applied. It will thus not hurt having pullup resistors enabled.
+A secondary reason is, that I plan to integrate i2c functions (using RP2040 I2C IP), which will require pullup resistors to be present. 
+The I3C Bus is indeed as demanded by the standard operated also in push-pull mode in SDR and DDR phases and in some phases where required in open-drain mode. 
+
 ### Now you are fully ready to go!
 
 # Usage mode: Interactive usage using terminal program
@@ -160,7 +168,8 @@ Reset any previously assigned dynamic address assignment:
 OK(0)
 ```
 Now assign a dynamic address 0x30 to a connected i3c devices:
-```plaintext> i3c_entdaa 0x30
+```plaintext
+> i3c_entdaa 0x30
 OK(0),0x04,0x6a,0x00,0x00,0x00,0x00,0x27,0xa0
 ```
 
@@ -240,7 +249,7 @@ if len(devices) > 0:
     print('result: ', data)
 ```
 
-I captured the SDA and SCL line using my Saleae logic analyzer - in case you are curious about the timing of this solution. It includes all above phases, so including SDR and DDR phases: <a href="https://raw.githubusercontent.com/xyphro/I3CBlaster/master/pictures/Example_trace_from_demo_runme_pythonscript.sal" target="_blank">Example_trace_from_demo_runme_pythonscript.sal</a>
+I captured the SDA and SCL line using my Saleae logic analyzer - in case you are curious about the timing of this solution. It includes all above phases, so also the newly added DDR phases: <a href="https://raw.githubusercontent.com/xyphro/I3CBlaster/master/pictures/Example_trace_from_demo_runme_pythonscript.sal" target="_blank">Example_trace_from_demo_runme_pythonscript.sal</a>
 
 # Finally: The good to knows
 
@@ -271,24 +280,25 @@ If you see issues like CRC or parity errors, consider looking with an oscillosco
 Here an example of "bad" SDA/SCL signals measured with an active high impedance differential probe:
 ![](https://raw.githubusercontent.com/xyphro/I3CBlaster/master/pictures/i3c_bad_signalintegrity.png)
 
-This was with 4 jumper wires from RP2040 to the i3c target: GND, VCC, SDA and SCL.
+The target was here wired with 4 jumper wires from RP2040 to the i3c target: GND, VCC, SDA and SCL.
+The SDA signal is driven by the target during the visible phase. The controller side driving phases of the SDA signal are much better behaved.
 
 Apart of the SCL line showing (minor) ringing, the SDA line shows very strong ringing caused by a very high slew-rate and wiring inductive components. More investigations have shown, that ground bouncing due to having just a single thin jumper wire for GND contributed also a lot to it.
 You can also see a strong coupling from SDA to SCL, which creates an implicit unwanted clock edge on SCL. This caused HDR-DDR transfers to be not working correctly.
 
-After optimizing this by connecting the target directly to the RP2040 with just a pinheader it got majorly improved:
+After optimizing this by connecting the target directly to the RP2040 with just a female pinheader it got majorly improved:
 ![](https://raw.githubusercontent.com/xyphro/I3CBlaster/master/pictures/i3c_good_signalintegrity.png)
 (Note: The signal content is different, because the improvements rendered I3C transfers to a working state)
 
 There are in practice of course a lot more aspects to signal integrity, e.g. capacitive load, length of lines (aka inductance, cross-talk), termination, source and sink impedance... But I want to give this just as some first pragmatic experience here without going into the depths.
 
-**Pull requests are very welcome!**
+**Pull requests or seeing modifications of this is very welcome!**
 
 What about e.g. making a Micropython module out of it? this would add a lot of value and I'd love to see that coming.
 
 *(Update 3rd November 2024: I started looking into it and it seems very feasible to create a .MPY module which can be imported like a normal python module. The difficulty lies into combining the MakeFile based system with the CMAKE based PICO SDK build. This will also likely be the case we don't see that many .MPY modules for RP2040. A bit more complex Frankenstein approach has to be me made... But I'll look into it further).*
 
-**Feedback very welcome -> See discussion section or for problems: File a ticket in issues section!**
+**In case of feedback/questions -> See discussion section or for problems: File a ticket in issues section!**
 
 But note: I won't be able to respond always immediately, ... Sometimes it can be within hours, sometimes days or months. I don't make a living out of this and simply want to increase the amount of i3c tools available to the public. Consider this a community project and try to help yourself also - the full source code is included in this repository.
 
