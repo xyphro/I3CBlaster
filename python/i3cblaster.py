@@ -287,6 +287,80 @@ class i3cblaster:
                 raise Exception('I3C Blaster exception: ' + resp[0])
         return resp[1]        
     
+    # Configure drive strength of controllers SDA/SCL pads.
+    # Valid values are 2, 4, 8, 12 for either 2mA, 4mA, 8mA or 12mA drive strength
+    # Note that it might be necessary to set the drivestrength of the I3C target too by doing target specific writes
+    def i3c_drivestrength(self, drivestrength_mA):
+        cmd = 'i3c_drivestrength %d' % drivestrength_mA
+        resp = self._parse_response(self._exec(cmd))
+        if resp[0] != self.OKTEXT:
+            raise Exception('I3C Blaster exception: ' + resp[0])
+    
+    # Configure I3C DDR specific target capabilities. Look into ENDXFER CCC for complete explanation.
+    # For the values of the 3 parameters use either True or False
+    def i3c_ddr_config(self, crc_word_indicator, enable_early_write_term, write_ack_enable):
+        cmd = 'i3c_ddr_config %d %d %d' % (int(crc_word_indicator), int(enable_early_write_term), int(write_ack_enable))
+        resp = self._parse_response(self._exec(cmd))
+        if resp[0] != self.OKTEXT:
+            raise Exception('I3C Blaster exception: ' + resp[0])
+    
+
+    # execute a write transfer to a I3C target in HDR-DDR mode
+    # writedata is an array, targetaddr is the 7-bit targetaddress to write to
+    # Note that writedata for HDR-DDR mode are 16-bit values!
+    # writecommand is the 7-bit command value which is used for the command word in the HDR-DDR write
+    def i3c_ddr_write(self, targetaddr, writecommand, writedata):
+        cmd = 'i3c_ddr_write %d %d ' % (targetaddr, writecommand)
+        for d in writedata:
+            cmd += hex(d)+','
+        if len(writedata) > 0:
+            cmd = cmd[0:-1]
+        resp = self._parse_response(self._exec(cmd))
+        if resp[0] != self.OKTEXT:
+            raise Exception('I3C Blaster exception: ' + resp[0])
+
+    # execute a read transfer from a I3C target in HDR-DDR mode.
+    # readbyecount is the count of bytes requested to read, 
+    # targetaddr is the 7-bit targetaddress to write to
+    # The function returns the read data bytes.
+    # Note: This can be less as the requested bytecount in case the I3C target
+    #       terminated the read earlier.
+    # readcommand is the 7-bit command value which is used for the command word in the HDR-DDR read
+    def i3c_ddr_read(self, targetaddr, readcommand, readbytecount):
+        cmd = 'i3c_ddr_read %d %d %d' % (targetaddr, readcommand, readbytecount)
+        resp = self._parse_response(self._exec(cmd))
+        if resp[0] != self.OKTEXT:
+            raise Exception('I3C Blaster exception: ' + resp[0])
+        return resp[1]
+
+    # execute a write transfer from a I3C target followed by a restart and read transfer in HDR-DDR mode.
+    # targetaddr is the 7-bit targetaddress to write to.
+    # write data is an array with the bytes to write during write phase.
+    # readbyecount is the count of bytes requested to read.
+    # The function returns the read data bytes.
+    # Note: This can be less as the requested bytecount in case the I3C target
+    #       terminated the read earlier.
+    # The result is an array with 2 elements. 
+    #   The first item contains the amount of words written successfully
+    #   The second item is an array containing the read data values
+    def i3c_ddr_writeread(self, targetaddr, writecommand, readcommand, writedata, readbytecount):
+        cmd = 'i3c_ddr_writeread %d %d %d ' % (targetaddr, writecommand, readcommand)
+        for d in writedata:
+            cmd += hex(d)+','
+        if len(writedata) > 0:
+            cmd = cmd[0:-1]
+        cmd += ' %d' % readbytecount
+        resp = self._parse_response(self._exec(cmd))
+        print('parsed response: ', resp)
+        if resp[0] != self.OKTEXT:
+            raise Exception('I3C Blaster exception: ' + resp[0])
+        if len(resp[1]) > 0:
+            count_written = resp[1][0]
+            read_data = resp[1][1:]
+            return [count_written, read_data]
+        else:
+            return [0, []]
+    
 
 def listdevices():
     foundserials = []

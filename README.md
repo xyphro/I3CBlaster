@@ -10,9 +10,23 @@ I3CBlaster has 3 usage schemes:
   A powerful feature here is, that it has an autoidentification scheme to detect the COM port number automatically. No need to struggle with which of your 20 COM ports is from the I3CBlaster device :smiley:
 * Need I3C in your on RP2040 C projects? Also possible, just integrate the i3c_hl module and you are good to go!
 
-Although I have already a HDR-DDR mode implementation running it is not yet fully tested and so far SDR mode (12.5MBit/s) and the mandatory open drain is supported.
-
 ![](https://raw.githubusercontent.com/xyphro/I3CBlaster/master/pictures/Puttysession.png)
+
+**Right before New-Year 2025 update**: HDR-DDR transfers got added :sunglasses:  
+I only have V1.0 HDR-DDR capable target devices, so testing focused on that. But aspects from V1.1 were also added. In case you start looking into HDR-DDR first time, please look into ENDXFER CCC documentation, as quite some extensions were introduced in V1.1 spec version. Whenever I get access to a V1.1 capable target, I'll extend my testing.
+
+Next planned step before doing further SW extensions is a level translator hardware and extension of the binary to the tiny <a href="https://www.seeedstudio.com/XIAO-RP2040-v1-0-p-5026.html" target="_blank">Seeedstudio Xiao RP2040 boards</a>.
+
+Upcoming SW changes will include functional extensions, but first an instantiation method to enable running the i3c_hl module 2 I3C controllers on RP2040 on both PIO instances, but also a cleanup and Doxygen style API documentation.
+
+## What is the difference to commercial products?
+
+A bitbanged or here HW supported bitbanged I3C master will never get exactly to the percentage of bus utilization of a real HW I3C master.
+While the implementation was targeted to be efficient here, there are phases where a PIO statemachine to CPU interaction will "pause" the bus for short times, especially for HDR-DDR transfers. Have a look at the demo code section below to download a captured waveform which allows you to zoom into the timing details. Note, that those pauses are ensured to occur in phases where SCL is low, such that the I3C timings are not violated, which is important for mixed bus scenarios.
+
+A bitbanged solution like the one here can enable you to modify the its code for failure insertion to test the robustness of a target. E.g. you can send a wrong CRC value or parity on purpose, generate unexpected bus conditions, etc.
+
+So it might not be an exact 100% replacement of commercial tools, but can be a good step for very initial tests/protocol investigation or later extension with failure insertion methods.
 
 ## In need of an I3C Analyzer?
 
@@ -106,6 +120,7 @@ Example Putty settings:
 | gpio_read  | get gpio state. If no parameter is given a 32 Bit number containint all GPIO states is returned|
 |info|Show some information about this version|
 |i3c_targetreset| Execute a targetreset sequence on I3C Bus|
+|i3c_drivestrength|Set the drivestrength of the controllers SDA and SCL pads. Valid values are 2, 4, 8, 12, representing 2mA, 4mA, 8mA or 12mA.
 |i3c_clk|Set I3C clock frequency|
 |i3c_scan|Scan for available I3C devices on the bus|
 |i3c_entdaa|Execute i3c entdaa procedure. The I3C address to assign can be given as a parameter|
@@ -117,6 +132,11 @@ Example Putty settings:
 |i3c_sdr_ccc_direct_write|Execute a ccc direct write transfer|
 |i3c_sdr_ccc_direct_read|Execute a ccc direct read transfer|
 |i3c_poll|Allows a readout of IBI or HJ (hotjoin) information from the bus. Call this function in case an IBI was signalled back when calling a transfer function or in regular intervals to ensure you get to see IBIs|
+|i3c_ddr_config|Configure I3C behavior/ I3C target capability. Look into ENDXFER CCC for complete explanation|
+|i3c_ddr_write|Execute a private DDR mode write transfer to a target. The function returns error code and how many words have actually been written|
+|i3c_ddr_read|Execute a HDR-DDR mode read transfer from a target. The function returns error code and the read data words|
+|i3c_ddr_writeread|Execute a HDR-DDR mode write transfer followed by a read. The function returns error code and how many words have actually been written and read data words|
+
 
 Each command parameters can be seen when typing:
 <br>help [functionname]
@@ -200,11 +220,27 @@ if len(devices) > 0:
     targets = i3c.i3c_scan()
     print('found target devices on bus:', targets)
     
-    
     print('reading up to 10 bytes from subregister 0x00:')
     data = i3c.i3c_sdr_writeread(0x30, [0x00], 10)
     print('result: ', data)
+
+    print('Setting controllers SDA/SCL drivestrength to 4mA')
+    data = i3c.i3c_drivestrength(4)
+    print('result: ', data)
+    
+    print('Executing a HDR-DDR Write')
+    i3c.i3c_ddr_write(0x30, 0x00, [0x1234, 0x5678])
+
+    print('Executing a HDR-DDR Read')
+    data = i3c.i3c_ddr_read(0x30, 0x00, 10)
+    print('result: ', data)
+
+    print('Executing a HDR-DDR Write followed by read')
+    data = i3c.i3c_ddr_writeread(0x30, 0x00, 0x00, [0x1234, 0x5678], 10)
+    print('result: ', data)
 ```
+
+I captured the SDA and SCL line using my Saleae logic analyzer - in case you are curious about the timing of this solution. It includes all above phases, so including SDR and DDR phases: <a href="https://raw.githubusercontent.com/xyphro/I3CBlaster/master/pictures/Example_trace_from_demo_runme_pythonscript.sal" target="_blank">Example_trace_from_demo_runme_pythonscript.sal</a>
 
 # Finally: The good to knows
 
@@ -216,6 +252,35 @@ Although you see 2 pullup resistors have to be added, the lines get driven in pu
 I3C does not require a pullup on the SCL line as it is driven by the master in push-pull mode, still I add here one. Why? Because I2C functions will get added to this too soon and I2C requires a pullup resistor.
 
 Something very important to know on I3C protocol is that the ACK phase is different to I2C ACK. On I2C only the state of the line during HIGH phase is used for acknowledgment information. On I3C the ACK - although it looks very similar does signal if "more bytes can be transferred" and the Controller can signal also back if it want to continue transfering more data bytes.
+
+# Signal integrity
+
+During experimentation while enabling HDR-DDR transfers it turned out that signal integrity is much more critical for DDR mode transfers compared to SDR mode.
+
+Due to this I introduced an option to set the drive strength.
+
+Items which affect the integrity a lot are:
+* Controller drive strength on SDA and SCL
+* Target drive strength - many targets have the ability to set the drive strength with an SDR transfer
+* Good ground connection between controller and target to avoid ground bounce. I have seen agressive high frequency ground bounce of e.g. up to +-1V when just wiring controller and target together with just a single Dupont jumper wire. This high number was also partly caused by the targets high slew rate before reconfiguring it.
+* Other topics like minimizing trace length, minimize capacitive coupling with layout techniques.
+
+All this does not mean, that you cannot wire a target to the controller with normal jumper wire, but it might create issues and you need to look into signal integrity.
+If you see issues like CRC or parity errors, consider looking with an oscilloscope at SDA and SCL signal. Ideally do this with high impedance active differential probes. Use peak-detect acquisition decimation mode, rather than high-res or sample to ensure, that short peaks are really visible.
+
+Here an example of "bad" SDA/SCL signals measured with an active high impedance differential probe:
+![](https://raw.githubusercontent.com/xyphro/I3CBlaster/master/pictures/i3c_bad_signalintegrity.png)
+
+This was with 4 jumper wires from RP2040 to the i3c target: GND, VCC, SDA and SCL.
+
+Apart of the SCL line showing (minor) ringing, the SDA line shows very strong ringing caused by a very high slew-rate and wiring inductive components. More investigations have shown, that ground bouncing due to having just a single thin jumper wire for GND contributed also a lot to it.
+You can also see a strong coupling from SDA to SCL, which creates an implicit unwanted clock edge on SCL. This caused HDR-DDR transfers to be not working correctly.
+
+After optimizing this by connecting the target directly to the RP2040 with just a pinheader it got majorly improved:
+![](https://raw.githubusercontent.com/xyphro/I3CBlaster/master/pictures/i3c_good_signalintegrity.png)
+(Note: The signal content is different, because the improvements rendered I3C transfers to a working state)
+
+There are in practice of course a lot more aspects to signal integrity, e.g. capacitive load, length of lines (aka inductance, cross-talk), termination, source and sink impedance... But I want to give this just as some first pragmatic experience here without going into the depths.
 
 **Pull requests are very welcome!**
 

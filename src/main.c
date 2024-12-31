@@ -37,6 +37,13 @@ SOFTWARE.
 */
 
 
+// some global runtime user adjustable settings (see i3c_ddr_config function)
+static bool i3c_ddr_config_crc_word_indicator = true;
+static bool i3c_ddr_config_enable_early_write_term = false;
+static bool i3c_ddr_config_write_ack_enable = false;
+
+
+
 static void parse_array_string(const char *str, uint8_t *ppayload, uint32_t *ppayloadlen)
 {
 	uint8_t payload[1024];
@@ -118,7 +125,7 @@ static void parse_array_string_uint16(const char *str, uint16_t *ppayload, uint3
 				}
 				else
 				{
-					ucli_error("payload byte values have to be in range 0..255");
+					ucli_error("payload byte values have to be in range 0..65535");
 					stop = true;
 				}
 				//pstr++;
@@ -360,6 +367,15 @@ UCLI_COMMAND_DEF(info, "Show information about this version")
 	printf("Automated command mode:\r\n");
 	printf("-----------------------\r\n");
 	printf("By sending @ as first character for each command, there is \r\nno character echoed back for easier automation fromout PC\r\n" );
+
+	uint32_t addr = PIO0_BASE;
+
+	for (addr = PIO0_BASE; addr <= (PIO0_BASE+0x128); addr+=4)
+	{
+		uint32_t data = *((volatile uint32_t *)addr);
+		printf("[%04x] = %08x\n", addr-PIO0_BASE, data);
+
+	}
 }
 
 UCLI_COMMAND_DEF(clkinfo, "Show information of the MCUs clock setup")
@@ -442,6 +458,108 @@ UCLI_COMMAND_DEF(gpio_read, "Get gpio state. If no parameter is given a 32 Bit n
 	printf("%s,%d\r\n", i3c_hl_get_errorstring(retcode), gpiostate);
 }
 
+UCLI_COMMAND_DEF(i3c_ddr_config, "Configure I3C behavior/ I3C target capability. Look into ENDXFER CCC for complete explanation",
+    UCLI_INT_ARG_DEF(crc_word_indicator, "specify 1 for 'No CRC Word follows Early termination request' (default). Specify 0 for 'CRC Word follows early Termination request'."),
+    UCLI_INT_ARG_DEF(enable_early_write_term, "Enable (1) or disable (0=default) early write termination request."),
+	UCLI_INT_ARG_DEF(write_ack_enable, "Enable (1) or disable (0=default) ack/nack capabilify for write commands (V1.0 targets don't support this).")
+)
+{
+	i3c_hl_status_t retcode = i3c_hl_status_ok;
+
+	i3c_ddr_config_crc_word_indicator = args->crc_word_indicator != 0;
+	i3c_ddr_config_enable_early_write_term = args->enable_early_write_term != 0;
+	i3c_ddr_config_write_ack_enable = args->write_ack_enable != 0;
+
+	printf("%s\r\n", i3c_hl_get_errorstring(retcode));
+}
+
+UCLI_COMMAND_DEF(i3c_ddr_write, "Execute a HDR-DDR mode write transfer to a target. The function returns error code and how many words have actually been written.",
+    UCLI_INT_ARG_DEF(addr, "The 7-Bit address of the target"),
+    UCLI_INT_ARG_DEF(cmd, "The 7-bit  command parameter (used in command phase)."),
+    UCLI_STR_ARG_DEF(payload, "Payload data - 16-bit word values seperated with comma without whitespaces (e.g. 0x1234,0x5678)")
+)
+{
+	uint16_t payload[1024];
+	uint32_t payloadlen=sizeof(payload);
+	i3c_hl_status_t retcode;
+
+	parse_array_string_uint16(args->payload, payload, &payloadlen);
+	
+	retcode =  i3c_hl_ddr_write((uint8_t)args->addr, (uint8_t)args->cmd, payload, &payloadlen, false,
+                                 i3c_ddr_config_write_ack_enable, i3c_ddr_config_enable_early_write_term, i3c_ddr_config_crc_word_indicator); // those settings can be adjusted by the user calling the i3c_ddr_config function and have to match the targets spec version / ENDXFER CCC setting
+
+	printf("%s,%d\r\n", i3c_hl_get_errorstring(retcode), payloadlen);
+}
+
+UCLI_COMMAND_DEF(i3c_ddr_read, "Execute a HDR-DDR mode read transfer from a target. The function returns error code and the read data words",
+    UCLI_INT_ARG_DEF(addr, "The 7-Bit address of the target"),
+    UCLI_INT_ARG_DEF(cmd, "The 7-bit  command parameter (used in command phase). The 7th bit of the command value will be forced high internally to signal a read transfer"),
+    UCLI_INT_ARG_DEF(wordcount, "The count of bytes to read")
+)
+{
+	uint16_t payload[1024];
+	uint32_t payloadlen=sizeof(payload);
+	i3c_hl_status_t retcode;
+
+	payloadlen = args->wordcount;
+	retcode = i3c_hl_ddr_read(args->addr , args->cmd, payload, &payloadlen, false, i3c_ddr_config_enable_early_write_term);
+
+	printf("%s", i3c_hl_get_errorstring(retcode));
+	if (retcode == i3c_hl_status_ok)
+	{
+		for (uint32_t i=0; i<payloadlen; i++)
+			printf(",0x%04x", payload[i]);
+	}
+	printf("\r\n");
+}
+
+UCLI_COMMAND_DEF(i3c_ddr_writeread, "Execute a HDR-DDR mode write transfer followed by a read. The function returns error code and how many words have actually been written and read data words",
+    UCLI_INT_ARG_DEF(addr, "The 7-Bit address of the target"),
+    UCLI_INT_ARG_DEF(wrcmd, "The 7-bit command parameter used for the write phase (used in command phase)."),
+    UCLI_INT_ARG_DEF(rdcmd, "The 7-bit command parameter used for the readphase (used in command phase)."),
+    UCLI_STR_ARG_DEF(payload, "Payload data - 16-bit word values seperated with comma without whitespaces (e.g. 0x1234,0x5678)"),
+    UCLI_INT_ARG_DEF(wordcount, "The count of bytes to read")
+)
+{
+	uint16_t payload[1024];
+	uint32_t payloadlen=sizeof(payload), readpayloadlen;
+	i3c_hl_status_t retcode;
+
+	parse_array_string_uint16(args->payload, payload, &payloadlen);
+	
+	retcode =  i3c_hl_ddr_write((uint8_t)args->addr, (uint8_t)args->wrcmd, payload, &payloadlen, true,
+                                 i3c_ddr_config_write_ack_enable, i3c_ddr_config_enable_early_write_term, i3c_ddr_config_crc_word_indicator); // those settings can be adjusted by the user calling the i3c_ddr_config function and have to match the targets spec version / ENDXFER CCC setting
+	if (retcode == i3c_hl_status_ok)
+	{
+		readpayloadlen = args->wordcount;
+		retcode = i3c_hl_ddr_read(args->addr , args->rdcmd, payload, &readpayloadlen, false, i3c_ddr_config_enable_early_write_term);
+		if (retcode != i3c_hl_status_ok)
+		{
+			readpayloadlen = 0;
+		}
+	}
+
+	printf("%s,%d", i3c_hl_get_errorstring(retcode), payloadlen);
+
+	if (retcode == i3c_hl_status_ok)
+	{
+		for (uint32_t i=0; i<payloadlen; i++)
+			printf(",0x%04x", payload[i]);
+	}
+	printf("\r\n");
+}
+
+
+UCLI_COMMAND_DEF(i3c_drivestrength, "Set the drive strength of SDA and SCL outputs of the controller. This helps in addressing signal integrity issues e.g. minimize crosstalk",
+    UCLI_INT_ARG_DEF(strength, "2 for 2mA, 4 for 4mA, 8 for 8mA, 12 for 12mA (default)")
+	)
+{
+	i3c_hl_status_t retcode;
+	retcode = i3c_hl_set_drivestrength(args->strength);
+	printf("%s\r\n", i3c_hl_get_errorstring(retcode));
+}
+
+
 bool usb_newly_connected(void)
 {
 	static bool was_connected = false;
@@ -467,6 +585,7 @@ int main()
     ucli_cmd_register(gpio_write);
 	ucli_cmd_register(gpio_read);
     ucli_cmd_register(info);	
+	ucli_cmd_register(i3c_drivestrength);
 	ucli_cmd_register(i3c_targetreset);
 	ucli_cmd_register(i3c_clk);
 	ucli_cmd_register(i3c_scan);
@@ -479,6 +598,11 @@ int main()
 	ucli_cmd_register(i3c_sdr_ccc_direct_write);
 	ucli_cmd_register(i3c_sdr_ccc_direct_read);
 	ucli_cmd_register(i3c_poll);
+	ucli_cmd_register(i3c_ddr_config);
+	ucli_cmd_register(i3c_ddr_write);
+	ucli_cmd_register(i3c_ddr_read);
+	ucli_cmd_register(i3c_ddr_writeread);
+	
 	
 	// initialize i3c to use GPIO16=SDA and GPIO17=SCL
 	i3c_init(16);
@@ -500,3 +624,11 @@ int main()
         	ucli_process((char)ch);
 	}
 }
+
+// Write an article about I3C signal integrity...
+/*
+i3c_drivestrength 2
+i3c_sdr_write 0x70 0x13,0x04
+i3c_ddr_write 0x70 0x00 0x1234,0x2345
+i3c_ddr_read 0x70 0x00 10
+*/

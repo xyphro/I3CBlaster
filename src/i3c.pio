@@ -62,6 +62,92 @@ skipdelay:
 .wrap
 
 
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Statemachine for HDR-DDR mode - The i3c_hl module  replaces the SDR statemachine with this one once required
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+.program i3c_ddr
+.side_set 1 opt
+.wrap_target
+inst_parser:
+    pull block                     ; pull new instruction word
+    out pc, 5
+
+PUBLIC ddr_cmd_exec:
+    out exec, 16                   ; direct command execution
+    jmp inst_parser         
+
+; precondition: sda is in output mode, SCL is output and low
+; 1 x Pindir during PRE1
+; 1 x Pinstate during PRE1
+; 1 x Pindir during PRE0
+; 1 x Pinstate during PRE0
+; 5 x magic number 18 for later transfer preparation where 18 bits are transfered or 12 in case CRC bits should be transfered as next step
+; 5 x instruction pointer in case PRE0 was sensed 1 (usually points to target_nacked as function of context)
+; 5 x instruction pointer in case PRE0 was sensed 0 (usually points to cmd_write_bits as function of context)
+;
+
+
+
+
+; output: 0 bits
+PUBLIC cmd_write_preamble_bit:
+    out pindirs, 1      side 0 [0] ; PRE1 - allows to select between active (1) or passive (0) drive from controller
+    out pins, 1         side 0 [3] ; PRE1: drive an active 1 or 0 on the bus - first bit of preamble is always driven by controller
+                                   ; This also adds some more setup time - in total I target to ensure 32ns setup time from SDA to SCL edge
+        ; HERE the target would update its PRE0 state
+    out pindirs, 1      side 1 [0] ; PRE0: this defines if the drive is active (1) or passive (0)
+    out pins, 1         side 1 [0] ; drive 2nd bit (This only meaningful if pindirs was 1)
+    out x, 5            side 1 [2] ; preload counter value used later
+    ; do something with 2nd edge data 
+    jmp pin instr1      side 0 [0] ; SDA reads as 1, execute 1st instruction
+        out null, 5     side 0 [0] ; skip 5 bits to select 2nd instruction for execution
+instr1:                            ; execute 2nd instruction if SDA is 0
+        out pc, 5       side 0 [0] ; jump to next instruction
+    
+
+PUBLIC target_nacked:
+    pull block                              ; read instruction word (not used - just ignored)
+    in   osr, 19                            ; copy instruction word back to OSR. Bit 1 is set in this instruction word, so a 1 signals "no success"
+    jmp inst_parser
+
+PUBLIC cmd_read_bits:
+    out x, 5
+    jmp nextbit ; we can skip the pindir setting as the precondition for readbits is that SDA is in input state
+
+; function to read and write DDR bits:
+; precondition: X is preloaded with the magic number 18
+; 1 x 0 if read transfer, 1 if write transfer
+; 18 x bits to transfer (if write transfer, otherwise bits are not used)
+; the function always ends with SDA state set to 1 and open drain mode!
+;
+; output: 19 bits, no matter if read or write mode is selected. Bit 0 will be always 0, Bit19..1 contain data (msb aligned) and 2 parity bits
+PUBLIC cmd_write_bits:
+    pull block          side 0 [0]          ; read instruction word
+    out pindirs, 1      side 0 [0]          ; this defines if this instruction is a read (0) or a write(1) transfer
+nextbit:
+    out pins, 1         side 0 [2]          ; this gives 8ns setup time for SDA (standard requires >=3ns)
+                                            ; It would be better to get to 32ns setup time -> possible, will look later into it!
+    in pins, 1          side 1 [0]          ; sample data on rising SCL edge
+    out pins, 1         side 1 [3]          ; this gives 8ns setup time for SDA (standard requires >=3ns)
+    in pins, 1          side 0 [0]          ; sample data on falling SCL edge
+    jmp x-- nextbit            [0]
+
+    ; PAR0 should always end in open drain mode high state preceeded by short active face for fast edge when in write mode
+    set pins, 1         side 0 [0]          ; force an active HIGH
+    set pindirs, 0      side 0 [0]          ; go to open drain mode
+
+    in null, 1                             ; signal a successful transfer by sending a 0
+.wrap
+
+PUBLIC cmd_sda_pattern:
+    out x, 5
+toggle_again:
+    out pins, 1         side 0 [3]
+    jmp x-- toggle_again
+    jmp inst_parser     side 0 [7]
+
 
 
 
@@ -75,11 +161,12 @@ skipdelay:
     out pindirs, 1      [0]        ; set SDA direction
     out pins,1          [0]        ; set SDA state
     nop                 side 1 [0] ; SCL 1
-    
+    nop                 side 1 [7] ; SCL 1 + 7 wait cycles
+    nop                 side 0 [7] ; SCL 0 + 7 wait cycles
+    out x, 5                       ; write PIO SM X value
 
 
 % c-sdk {
-
     #define I3CPIO_OPCODE_STOP_DELAY(delay)	                        ( ((uint32_t)(delay)<<5) | ((uint32_t)(i3c_offset_cmd_stop)) )
 
     // Opcode helpers for interacting with PIO implementation "i3c"
@@ -103,10 +190,7 @@ skipdelay:
                                                                                (((uint32_t)val5)<<28)    )
 
     // Functions to build bit pattern transfers
-    // bit 0 = pindir   falling edge
-    // bit 1 = pinstate falling edge
-    // bit 2 = opendrain delay (1=enable)
-    // bit 3 = pindir   rising edge
+    // Yes, this is a debateable macro nightmare, but simplifies PIO usage
     #define OD_WBIT(value)     ( (uint32_t)( (0u<<1) | ((((uint32_t)(value)^1))<<0) | ((((uint32_t)(value)^1))<<3) | (1u<<2) ) )
     #define OD_RBIT            ( (uint32_t)( (0u<<1) | (0u<<0) | (0u<<3) | (1u<<2) ) )
     #define SDR_WBITBACK(value)    ( (uint32_t)( ((value)<<1) | (1u<<0) | ((((uint32_t)(value)^1))<<3) | (0u<<2) ) )
@@ -114,4 +198,20 @@ skipdelay:
     #define SDR_WBIT(value)    ( (uint32_t)( ((value)<<1) | (1u<<0) | (1u<<3) | (0u<<2) ) )
     #define SDR_RBIT(endxfer)  ( (uint32_t)( (0u<<1) | (0u<<0) | (((uint32_t)(endxfer))<<3) | (0u<<2) ) )
 
+    #define DDR_HDR_OPCODE_WRITE_PREAMBLE(pindir_PRE1, pinstate_PRE1 ,pindir_PRE0, pinstate_PRE0, bitcount, instr_pre0_1, instr_pre0_0)  ( ((uint32_t)(i3c_ddr_offset_cmd_write_preamble_bit)<<27) | ((uint32_t)(pindir_PRE1)<<26) | ((uint32_t)(pinstate_PRE1)<<25) | ((uint32_t)(pindir_PRE0)<<24) | ((uint32_t)(pinstate_PRE0)<<23) | ((((uint32_t)(bitcount)>>1)-1)<<18) | ((uint32_t)(instr_pre0_1)<<13) | ((uint32_t)(instr_pre0_0)<<8) )
+
+    #define DDR_HDR_OPCODE_WRITE_BITS(is_writetransfer, bitcount, bits_to_write)  ( ((uint32_t)(i3c_ddr_offset_cmd_write_bits)<<27) | ((uint32_t)(is_writetransfer)<<26) | ((uint32_t)(bits_to_write)<<(26-(bitcount)))) 
+    // The lsb in below instruction is important to signal back a 1 in case of "no ACK" in some cases. It is not used for any actual output waveform
+    #define DDR_HDR_OPCODE_WRITE_BITS_NOOPCODE(is_writetransfer, bitcount, bits_to_write)  ( ((uint32_t)(is_writetransfer)<<31) | ((uint32_t)(bits_to_write)<<(31-(bitcount))) | 1 ) 
+    #define DDR_HDR_OPCODE_TARGET_NACKED  ( (uint32_t)(i3c_ddr_offset_target_nacked)<<27 )
+    // primitives for generation of eg. HDR EXIT or HDR RESTART
+    #define DDR_OPCODE_SCL0                                         ( ((uint32_t)i3c_ddr_offset_ddr_cmd_exec<<27) | ((uint32_t)i3c_helper_templates_program_instructions[2] << 11) )
+    #define DDR_OPCODE_SCL1                                         ( ((uint32_t)i3c_ddr_offset_ddr_cmd_exec<<27) | ((uint32_t)i3c_helper_templates_program_instructions[5] << 11) )
+    #define DDR_OPCODE_SDA_PIN(state)                               ( ((uint32_t)i3c_ddr_offset_ddr_cmd_exec<<27) | ((uint32_t)i3c_helper_templates_program_instructions[4] << 11) | (((uint32_t)(state))<<10) )
+    #define DDR_OPCODE_SDA_DIR(dir)                                 ( ((uint32_t)i3c_ddr_offset_ddr_cmd_exec<<27) | ((uint32_t)i3c_helper_templates_program_instructions[3] << 11) | (((uint32_t)(dir))<<10) )
+    #define DDR_OPCODE_SCL1_WAIT7                                   ( ((uint32_t)i3c_ddr_offset_ddr_cmd_exec<<27) | ((uint32_t)i3c_helper_templates_program_instructions[6] << 11) )
+    #define DDR_OPCODE_SCL0_WAIT7                                   ( ((uint32_t)i3c_ddr_offset_ddr_cmd_exec<<27) | ((uint32_t)i3c_helper_templates_program_instructions[7] << 11) )
+    #define DDR_OPCODE_SDA_PATTERN(patternlength, pattern)          ( ((uint32_t)i3c_ddr_offset_cmd_sda_pattern<<27) | ((uint32_t)(patternlength) << 22) | (((uint32_t)(pattern))<<(22-(patternlength))) )
+    #define DDR_HDR_OPCODE_READ_BITS(bitcount)                      ( ((uint32_t)i3c_ddr_offset_cmd_read_bits<<27) | ((((uint32_t)(bitcount)>>1)-1)<<22 ) )
+    
 %}

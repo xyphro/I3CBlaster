@@ -21,7 +21,21 @@ if len(devices) > 0:
     targets = i3c.i3c_scan()
     print('found target devices on bus:', targets)
     
-    
     print('reading up to 10 bytes from subregister 0x00:')
     data = i3c.i3c_sdr_writeread(0x30, [0x00], 10)
+    print('result: ', data)
+
+    print('Setting controllers SDA/SCL drivestrength to 4mA')
+    data = i3c.i3c_drivestrength(4)
+    print('result: ', data)
+    
+    print('Executing a HDR-DDR Write')
+    i3c.i3c_ddr_write(0x30, 0x00, [0x1234, 0x5678])
+
+    print('Executing a HDR-DDR Read')
+    data = i3c.i3c_ddr_read(0x30, 0x00, 10)
+    print('result: ', data)
+
+    print('Executing a HDR-DDR Write followed by read')
+    data = i3c.i3c_ddr_writeread(0x30, 0x00, 0x00, [0x1234, 0x5678], 10)
     print('result: ', data)

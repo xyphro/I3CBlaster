@@ -46,6 +46,42 @@ static uint32_t i3c_wdata_table[512];
 static uint8_t i3c_hl_arbcode;
 static uint8_t i3c_hl_gpiobasepin;
 static uint32_t i3c_hl_pio_program_sdr[32]; // copy of pio memory for fast exchange of SM. It is on purpose located in ram for fast copy action
+static uint32_t i3c_hl_pio_program_ddr[32]; // copy of pio memory for fast exchange of SM. It is on purpose located in ram for fast copy action
+
+// A table to help executing CRC5 CRCs using macro CRC5_CALCULATE
+// generated using pycrc:
+//   python pycrc.py --width=5 --poly=0x05 --reflect-in=False --xor-in=0x1f --reflect-out=False --xor-out=0x1f --algorithm=table-driven --generate=C --output=out.c
+// The values in table were post execution shifted left by 3 bits afterwards for faster execution
+static const uint8_t __not_in_flash("crc_table") crc5_table[256] = {
+	0x00, 0x28, 0x50, 0x78, 0xa0, 0x88, 0xf0, 0xd8, 0x68, 0x40, 0x38, 0x10, 0xc8, 0xe0, 0x98, 0xb0,
+	0xd0, 0xf8, 0x80, 0xa8, 0x70, 0x58, 0x20, 0x08, 0xb8, 0x90, 0xe8, 0xc0, 0x18, 0x30, 0x48, 0x60,
+	0x88, 0xa0, 0xd8, 0xf0, 0x28, 0x00, 0x78, 0x50, 0xe0, 0xc8, 0xb0, 0x98, 0x40, 0x68, 0x10, 0x38,
+	0x58, 0x70, 0x08, 0x20, 0xf8, 0xd0, 0xa8, 0x80, 0x30, 0x18, 0x60, 0x48, 0x90, 0xb8, 0xc0, 0xe8,
+	0x38, 0x10, 0x68, 0x40, 0x98, 0xb0, 0xc8, 0xe0, 0x50, 0x78, 0x00, 0x28, 0xf0, 0xd8, 0xa0, 0x88,
+	0xe8, 0xc0, 0xb8, 0x90, 0x48, 0x60, 0x18, 0x30, 0x80, 0xa8, 0xd0, 0xf8, 0x20, 0x08, 0x70, 0x58,
+	0xb0, 0x98, 0xe0, 0xc8, 0x10, 0x38, 0x40, 0x68, 0xd8, 0xf0, 0x88, 0xa0, 0x78, 0x50, 0x28, 0x00,
+	0x60, 0x48, 0x30, 0x18, 0xc0, 0xe8, 0x90, 0xb8, 0x08, 0x20, 0x58, 0x70, 0xa8, 0x80, 0xf8, 0xd0,
+	0x70, 0x58, 0x20, 0x08, 0xd0, 0xf8, 0x80, 0xa8, 0x18, 0x30, 0x48, 0x60, 0xb8, 0x90, 0xe8, 0xc0,
+	0xa0, 0x88, 0xf0, 0xd8, 0x00, 0x28, 0x50, 0x78, 0xc8, 0xe0, 0x98, 0xb0, 0x68, 0x40, 0x38, 0x10,
+	0xf8, 0xd0, 0xa8, 0x80, 0x58, 0x70, 0x08, 0x20, 0x90, 0xb8, 0xc0, 0xe8, 0x30, 0x18, 0x60, 0x48,
+	0x28, 0x00, 0x78, 0x50, 0x88, 0xa0, 0xd8, 0xf0, 0x40, 0x68, 0x10, 0x38, 0xe0, 0xc8, 0xb0, 0x98,
+	0x48, 0x60, 0x18, 0x30, 0xe8, 0xc0, 0xb8, 0x90, 0x20, 0x08, 0x70, 0x58, 0x80, 0xa8, 0xd0, 0xf8,
+	0x98, 0xb0, 0xc8, 0xe0, 0x38, 0x10, 0x68, 0x40, 0xf0, 0xd8, 0xa0, 0x88, 0x50, 0x78, 0x00, 0x28,
+	0xc0, 0xe8, 0x90, 0xb8, 0x60, 0x48, 0x30, 0x18, 0xa8, 0x80, 0xf8, 0xd0, 0x08, 0x20, 0x58, 0x70,
+	0x10, 0x38, 0x40, 0x68, 0xb0, 0x98, 0xe0, 0xc8, 0x78, 0x50, 0x28, 0x00, 0xd8, 0xf0, 0x88, 0xa0
+};
+static bool sm_is_in_ddr_mode;
+
+// Helper macro for fast CRC exepcution. For correct usage use ast initial value 0x1f<<3 and the resulting CRC is the return value >>3
+// The shift by 3 bytes helps in cycle efficiency of the CRC calculation
+#define CRC5_CALCULATE(crc, data) ( crc5_table[crc5_table[(crc) ^ (uint8_t)((data)>>8)] ^ ((uint8_t)(data) & 0xffu)] )
+
+// Calculate parity bits for a 16 bit data word. Used for HDR-DDR transfers
+// Bit 1 contains PA1 = D[15] ^ D[13] ^ D[11] ^ D[9] ^ D[7] ^ D[5] ^ D[3] ^ D[1]
+// Bit 0 contains PA0 = D[14] ^ D[12] ^ D[10] ^ D[8] ^ D[6] ^ D[4] ^ D[2] ^ D[0] ^ 1 
+// All other bits are 0
+// return datatype is enforced to be uint8_t
+#define DDR_PARITY(data) ( (uint8_t)( ((uint32_t)__builtin_parity(((uint16_t)(data) & 0xaaaau)) << 1) | ((uint32_t)__builtin_parity(((uint16_t)(data) & 0x5555u))  ^ 1) ))
 
 
 static inline void __not_in_flash_func(i3c_pio_wait_tx_empty)(void) 
@@ -87,6 +123,11 @@ static inline void __not_in_flash_func(i3c_pio_set_autopush)(uint8_t bitcount)
 	pio0->sm[1].shiftctrl = i3c_pio_shiftctrl_autopointer_tab[bitcount];
 }
 
+static inline void __not_in_flash_func(i3c_pio_set_autopush_bitrev)(uint8_t bitcount)
+{
+	pio0->sm[1].shiftctrl = i3c_pio_shiftctrl_autopointer_tab[bitcount] & ~(1<<19);
+}
+
 // restart pio (resets e.g. shift counters and ISR/OSR content)
 static inline void __not_in_flash_func(i3c_pio_restart)(void)
 {
@@ -99,7 +140,64 @@ static inline void __not_in_flash_func(s_i3c_program_hdr_sdr_sm)(void)
 //	for (uint32_t i=0; i<i3c_program.length; i++)
 //		*((volatile uint16_t *)&(pio0->instr_mem[i])) = i3c_program_instructions[i];
 	memcpy((void*)(pio0->instr_mem), (void*)i3c_hl_pio_program_sdr, i3c_program.length*4);
+    pio0->sm[1].execctrl = (          i3c_wrap << PIO_SM0_EXECCTRL_WRAP_TOP_LSB) |
+	                       (   i3c_wrap_target << PIO_SM0_EXECCTRL_WRAP_BOTTOM_LSB) | 
+						   (                 1 << PIO_SM0_EXECCTRL_SIDE_EN_LSB) |
+						   (i3c_hl_gpiobasepin << PIO_SM0_EXECCTRL_JMP_PIN_LSB);
+	pio0->sm[1].shiftctrl = (0 << PIO_SM0_SHIFTCTRL_PULL_THRESH_LSB) | 
+		 				    (1 << PIO_SM0_SHIFTCTRL_OUT_SHIFTDIR_LSB) |
+						    (0 << PIO_SM0_SHIFTCTRL_IN_SHIFTDIR_LSB) |
+						    (0 << PIO_SM0_SHIFTCTRL_PUSH_THRESH_LSB) |
+						    (1 << PIO_SM0_SHIFTCTRL_AUTOPUSH_LSB) |
+						    (0 << PIO_SM0_SHIFTCTRL_AUTOPULL_LSB);
+	sm_is_in_ddr_mode = false;
 }
+
+// program pio SM for DDR mode
+static inline void __not_in_flash_func(s_i3c_program_hdr_ddr_sm)(void)
+{
+	//uint32_t *src=i3c_hl_pio_program_ddr, *dst=pio0->instr_mem;
+//	for (uint32_t i=0; i<i3c_ddr_program.length; i++)
+//		*((volatile uint16_t *)&(pio0->instr_mem[i])) = i3c_ddr_program_instructions[i];
+	memcpy((void*)(pio0->instr_mem), (void*)i3c_hl_pio_program_ddr, i3c_ddr_program.length*4);
+
+    pio0->sm[1].execctrl = (       i3c_ddr_wrap << PIO_SM0_EXECCTRL_WRAP_TOP_LSB) |
+	                       (i3c_ddr_wrap_target << PIO_SM0_EXECCTRL_WRAP_BOTTOM_LSB) | 
+						   (                  1 << PIO_SM0_EXECCTRL_SIDE_EN_LSB) |
+						   ( i3c_hl_gpiobasepin << PIO_SM0_EXECCTRL_JMP_PIN_LSB);
+
+	pio0->sm[1].shiftctrl = (0 << PIO_SM0_SHIFTCTRL_PULL_THRESH_LSB) | 
+		 				    (0 << PIO_SM0_SHIFTCTRL_OUT_SHIFTDIR_LSB) | // in DDR mode we shift out bits left out to avoid bitreversal which is slow on CM0 or adds artificially to PIO program memory size
+		 				    (0 << PIO_SM0_SHIFTCTRL_IN_SHIFTDIR_LSB) | // data enters from right
+						    (0 << PIO_SM0_SHIFTCTRL_PUSH_THRESH_LSB) |
+						    (1 << PIO_SM0_SHIFTCTRL_AUTOPUSH_LSB) |
+						    (0 << PIO_SM0_SHIFTCTRL_AUTOPULL_LSB);
+	sm_is_in_ddr_mode = true;
+}
+
+i3c_hl_status_t i3c_hl_set_drivestrength(uint8_t drivestrength_mA)
+{
+	uint8_t ds = 0xff;
+	switch (drivestrength_mA)
+	{
+		case  2: ds = 0; break;
+		case  4: ds = 1; break;
+		case  8: ds = 2; break;
+		case 12: ds = 3; break;
+	}
+
+	if (ds == 0xff)
+	{
+		return i3c_hl_status_param_outofrange;
+	}
+	else
+	{
+		gpio_set_drive_strength(i3c_hl_gpiobasepin, (enum gpio_drive_strength)ds);
+		gpio_set_drive_strength(i3c_hl_gpiobasepin+1, (enum gpio_drive_strength)ds);		
+	}
+	return i3c_hl_status_ok;
+}
+
 
 i3c_hl_status_t i3c_init(uint8_t gpiobasepin)
 {
@@ -116,10 +214,18 @@ i3c_hl_status_t i3c_init(uint8_t gpiobasepin)
 		{
 			i3c_hl_pio_program_sdr[i] = 0x0ul;
 		}
+		if (i < (sizeof(i3c_ddr_program_instructions)/sizeof(uint16_t)) )
+		{
+			i3c_hl_pio_program_ddr[i] = i3c_ddr_program_instructions[i];
+		}
+		else
+		{
+			i3c_hl_pio_program_ddr[i] = 0x0ul;
+		}
 	}
+	i3c_hl_gpiobasepin = gpiobasepin;
 	s_i3c_program_hdr_sdr_sm();
 
-	i3c_hl_gpiobasepin = gpiobasepin;
     pio->sm[1].clkdiv = (uint32_t) (1.0f * (1 << 16));
     pio->sm[1].pinctrl =
             (1 << PIO_SM0_PINCTRL_SET_COUNT_LSB) |
@@ -136,10 +242,12 @@ i3c_hl_status_t i3c_init(uint8_t gpiobasepin)
 	gpio_set_drive_strength(gpiobasepin+1, GPIO_DRIVE_STRENGTH_12MA);
 	gpio_set_slew_rate(gpiobasepin, GPIO_SLEW_RATE_FAST);
 	gpio_set_slew_rate(gpiobasepin+1, GPIO_SLEW_RATE_FAST);
+
 	// set wrap target
     pio->sm[1].execctrl = (       i3c_wrap << PIO_SM0_EXECCTRL_WRAP_TOP_LSB) |
 	                      (i3c_wrap_target << PIO_SM0_EXECCTRL_WRAP_BOTTOM_LSB) | 
-						  (              1 << PIO_SM0_EXECCTRL_SIDE_EN_LSB);
+						  (              1 << PIO_SM0_EXECCTRL_SIDE_EN_LSB) | 
+						  (    gpiobasepin << PIO_SM0_EXECCTRL_JMP_PIN_LSB);
 	pio->sm[1].shiftctrl = (0 << PIO_SM0_SHIFTCTRL_PULL_THRESH_LSB) | 
 						   (1 << PIO_SM0_SHIFTCTRL_OUT_SHIFTDIR_LSB) |
 						   (0 << PIO_SM0_SHIFTCTRL_IN_SHIFTDIR_LSB) |
@@ -824,12 +932,17 @@ const char     *i3c_hl_get_errorstring(i3c_hl_status_t errcode)
 
 	switch (errcode)
 	{
-    	case i3c_hl_status_ok                  : sprintf(errstring, "OK(%d)", (uint32_t)errcode); break;
-    	case i3c_hl_status_ibi                 : sprintf(errstring, "ERR_IBI_ARBITRATION(%d)", (uint32_t)errcode); break;
-    	case i3c_hl_status_nak_during_arbhdr   : sprintf(errstring, "ERR_NAKED_DURING_ARBHDR(%d)", (uint32_t)errcode); break;
-    	case i3c_hl_status_nak_during_sdraddr  : sprintf(errstring, "ERR_NAKED(%d)", (uint32_t)errcode); break;
-		case i3c_hl_status_param_outofrange    : sprintf(errstring, "ERR_INVALID_PARAMETER(%d)", (uint32_t)errcode); break;
-		case i3c_hl_status_no_ibi              : sprintf(errstring, "WARN_NO_IBI(%d)", (uint32_t)errcode); break;
+    	case i3c_hl_status_ok                    : sprintf(errstring, "OK(%d)", (uint32_t)errcode); break;
+    	case i3c_hl_status_ibi                   : sprintf(errstring, "ERR_IBI_ARBITRATION(%d)", (uint32_t)errcode); break;
+    	case i3c_hl_status_nak_during_arbhdr     : sprintf(errstring, "ERR_NAKED_DURING_ARBHDR(%d)", (uint32_t)errcode); break;
+    	case i3c_hl_status_nak_during_sdraddr    : sprintf(errstring, "ERR_NAKED(%d)", (uint32_t)errcode); break;
+		case i3c_hl_status_param_outofrange      : sprintf(errstring, "ERR_INVALID_PARAMETER(%d)", (uint32_t)errcode); break;
+		case i3c_hl_status_no_ibi                : sprintf(errstring, "WARN_NO_IBI(%d)", (uint32_t)errcode); break;
+		case i3c_hl_status_nak_ddr               : sprintf(errstring, "ERR_NAKED_DDR(%d)", (uint32_t)errcode); break;
+		case i3c_hl_status_ddr_early_termination : sprintf(errstring, "WARN_EARLY_TERMINATED(%d)", (uint32_t)errcode); break;
+		case i3c_hl_status_ddr_invalid_preamble  : sprintf(errstring, "ERR_DDR_INVALID_PREAMBLE(%d)", (uint32_t)errcode); break;
+		case i3c_hl_status_ddr_parity_wrong      : sprintf(errstring, "ERR_DDR_READ_PARITY_WRONG(%d)", (uint32_t)errcode); break;
+		case i3c_hl_status_ddr_crc_wrong         : sprintf(errstring, "ERR_DDR_READ_CRC_WRONG(%d)", (uint32_t)errcode); break;
 		default:
 			sprintf(errstring, "ERR_UNDEFINED(%d)", (uint32_t)errcode); 
 			break;
@@ -905,26 +1018,359 @@ i3c_hl_status_t __not_in_flash_func(i3c_hl_enthdr0)(void)
 	return i3c_hl_sdr_ccc_broadcast_write(&dat, 1);
 }
 
-static uint8_t inline __not_in_flash_func(s_crc5)(uint8_t crc, uint16_t *pdata, uint32_t wordcount)
+i3c_hl_status_t __not_in_flash_func(i3c_hl_ddr_write)(uint8_t addr, uint8_t command, uint16_t *pdat, uint32_t *pwordcount, bool finalize_with_restart,
+                                                      bool ack_nack_enable, bool early_write_termination_enabled, bool send_crc_on_early_termination)
 {
-    uint16_t i, data;
-    uint8_t bit;
+	i3c_hl_status_t retcode = i3c_hl_status_ok;
+	uint32_t previntstate = save_and_disable_interrupts();
 
-
-	while (wordcount--)
+	if ( !sm_is_in_ddr_mode )
 	{
-		data = *pdata++;
-		for (i = 0x8000; i > 0; i >>= 1)
+		if (i3c_ibi_type1_check())
 		{
-			bit = (crc & 0x10) ^ ((data & i) ? 0x10 : 0);
-			crc <<= 1;
-			if (bit)
+			retcode = i3c_hl_status_ibi;
+		}
+		if (retcode == i3c_hl_status_ok)
+		{
+			i3c_start();
+			retcode = i3c_arbhdr(NULL);
+			if ( retcode == i3c_hl_status_ok )
 			{
-				crc ^= 0x05;
+				i3c_sdr_write( 0x20 );
+			}
+			if ( (retcode != i3c_hl_status_ibi) && (retcode != i3c_hl_status_ok) ) // on a IBI getting received, don't terminate the transfer -> it has to be handled by i3c_poll function
+			{
+				i3c_stop();
 			}
 		}
-		crc &= 0x1f;
 	}
-    return crc;
+
+	if (retcode == i3c_hl_status_ok) // no IBI arbitration happend and arbitration header was acknowledge, so lets transfer....
+	{
+		s_i3c_program_hdr_ddr_sm(); // switch to DDR PIO SM. No need to restart it, as the start sequence of PIO code where the PC is at that point of time  is identical
+		i3c_pio_set_autopush_bitrev(19);
+		uint8_t crc5_value = 0x1f<<3; // 0x1f is the initial value for CRC5 calculation
+		uint32_t cmd1, cmd2, parity, dat;
+		uint32_t retval; // PIO return values end up here
+		dat = ((uint32_t)addr<<1) | (((uint32_t)command&0x7f)<<8);
+
+		// prepare DDR mode command word
+		parity = ((uint32_t)__builtin_parity((dat & 0xaaaa)) << 1) |      // PA1 = D[15] ^ D[13] ^ D[11] ^ D[9] ^ D[7] ^ D[5] ^ D[3] ^ D[1]
+				((uint32_t)__builtin_parity((dat & 0x5555))  ^ 1);       // PA0 = D[14] ^ D[12] ^ D[10] ^ D[8] ^ D[6] ^ D[4] ^ D[2] ^ D[0] ^ 1 
+
+		// implement a recommendation from i3c spec which is to enforce that PA0 is 1 for faster turnaround for read transfers
+		if ((parity & 1u) == 0)
+		{
+			parity |= 1u;
+			dat ^= 1u;
+		}
+		// send write command
+		cmd1 = DDR_HDR_OPCODE_WRITE_PREAMBLE(1, 0, 1, 1, 18, i3c_ddr_offset_cmd_write_bits, i3c_ddr_offset_cmd_write_bits);
+		cmd2 = DDR_HDR_OPCODE_WRITE_BITS_NOOPCODE(1, 18, dat<<2 | parity);
+		i3c_pio_put32_no_check( cmd1 );
+		i3c_pio_put32_no_check( cmd2 );
+		crc5_value = CRC5_CALCULATE(crc5_value, dat); // calculate crc5 during data transfer execution to make use of parallelism
+		i3c_pio_get32(); // dump read data. During command sending phase there is no ACK/NACK mechanism present in HDR-DDR mode. This is done during the NEXT preamble phase.
+
+		// send a data word(s)
+		uint16_t *pdati = pdat;
+		uint32_t wordcount, prev_crc5_value;
+		bool     early_termination = false;
+		for (wordcount=0; wordcount < *pwordcount; wordcount++)
+		{
+			dat = *pdati++; // get next data word
+			parity = ((uint32_t)__builtin_parity((dat & 0xaaaa)) << 1) |      // PA1 = D[15] ^ D[13] ^ D[11] ^ D[9] ^ D[7] ^ D[5] ^ D[3] ^ D[1]
+					 ((uint32_t)__builtin_parity((dat & 0x5555))  ^ 1);       // PA0 = D[14] ^ D[12] ^ D[10] ^ D[8] ^ D[6] ^ D[4] ^ D[2] ^ D[0] ^ 1 
+			if (wordcount == 0)
+			{ // The first data word preamble phase is handled conditional cause there is an optional ACK/NACK phase
+				if (ack_nack_enable)
+				{ // when DDR Write ack&nack is enabled, the target signals by PRE0 state if it acks or not (introduced as optional in V1.1 spec, likely to be enforced in V1.2 spec)
+					cmd1 = DDR_HDR_OPCODE_WRITE_PREAMBLE(0, 0, 0, 0, 18, i3c_ddr_offset_target_nacked, i3c_ddr_offset_cmd_write_bits);
+				}
+				else
+				{ // when ack&nack by target is not enabled, the CONTROLLER has to write PRE0 as 0. This was standard behavior in V1.0 spec
+					cmd1 = DDR_HDR_OPCODE_WRITE_PREAMBLE(0, 1, 1, 0, 18, i3c_ddr_offset_cmd_write_bits, i3c_ddr_offset_cmd_write_bits);
+				}
+			}
+			else
+			{ // for following data words the preamble phase can optionally signal target early request
+				if (early_write_termination_enabled)
+				{ // when DDR Write early termination is enabled, the target signals by PRE0 state if it wants to abort (introduced as optional in V1.1 spec, likely to be enforced in V1.2 spec)
+					cmd1 = DDR_HDR_OPCODE_WRITE_PREAMBLE(0, 0, 0, 0, 18, i3c_ddr_offset_cmd_write_bits, i3c_ddr_offset_target_nacked);
+				}
+				else
+				{ // when DDR Write early write termination is disabled, the target cannot signal early abort (default V1.0 behavior)
+					cmd1 = DDR_HDR_OPCODE_WRITE_PREAMBLE(0, 1, 1, 0, 18, i3c_ddr_offset_cmd_write_bits, i3c_ddr_offset_cmd_write_bits);
+				}
+			}
+			cmd2 = DDR_HDR_OPCODE_WRITE_BITS_NOOPCODE(1, 18, (dat<<2) | parity);
+			i3c_pio_put32_no_check(cmd1);
+			i3c_pio_put32_no_check(cmd2);
+			prev_crc5_value = crc5_value; //  store previous crc value to be able to use the correct crc value in case of early termination
+			crc5_value = CRC5_CALCULATE(crc5_value, dat); // calculate crc5 during data transfer execution to make use of parallelism
+			retval = i3c_pio_get32(); // dump read data. This is used as synchronization point to enable SM replacement in next step
+			if (retval & 1) // on a successful transfer bit 0 is 0. If bit 1 is 0 then the target_nacked path was taken, which means the transfer stopped after preamble phase
+			{
+				if (wordcount == 0)
+				{ // target did not ack
+					retcode == i3c_hl_status_nak_ddr;
+					break; // I'm not fan of break statements, but sometimes they are nice and this is no automotive qualified code at the end...
+				}
+				else
+				{ // target did request early termination
+					retcode == i3c_hl_status_ddr_early_termination;
+					crc5_value = prev_crc5_value; // The last datavalue was not really sent on the bus, so restore the previous CRC value
+					early_termination = true; // on early termination we might want to suppress the CRC phase as passed to this function
+					break;
+				}
+			}
+		}
+		*pwordcount = wordcount; // update to callee the count of actual written words
+
+		if (retcode != i3c_hl_status_nak_ddr)
+		{ // don't send CRC word in case the target did not ACK
+			// don't send CRC word in case early termination is enabled and sending CRC on early termination is disabled.
+			if ( !(early_termination && !send_crc_on_early_termination) )
+			{
+				i3c_pio_set_autopush_bitrev(11);
+				cmd1 = DDR_HDR_OPCODE_WRITE_PREAMBLE(1, 0, 1, 1, 10, i3c_ddr_offset_cmd_write_bits, i3c_ddr_offset_cmd_write_bits);
+				cmd2 = DDR_HDR_OPCODE_WRITE_BITS_NOOPCODE(1, 10, (((0xcul<<5) | (crc5_value>>3))<<1) | 1);
+				i3c_pio_put32_no_check(cmd1);
+				i3c_pio_put32_no_check(cmd2);
+				i3c_pio_get32(); // dump read data. This is just used as synchronization point
+			}
+		}
+
+
+		// In case no transfer error occured and a request came to finalize with a HDR-restart condition, we'll do so. This allows concatenation of 
+		// transfers without SDR phase in between.
+		if ( (retcode == i3c_hl_status_ok) && finalize_with_restart )
+		{
+			// generate HDR Exit pattern
+			i3c_pio_put32_no_check(DDR_OPCODE_SDA_DIR(1)); // set SDA to output
+			i3c_pio_put32_no_check(DDR_OPCODE_SDA_PATTERN(5, 0x15)); // create 1 0 1 0 1 pattern on SDA
+			i3c_pio_put32_no_check(DDR_OPCODE_SCL1);
+			i3c_pio_put32_no_check(DDR_OPCODE_SCL0);
+			i3c_pio_put32(DDR_OPCODE_SDA_DIR(0)); // release SDA (open drain). Note: SDA state is still 0 which is important for any following I3C start condition
+			i3c_pio_wait_tx_empty();
+			while (pio0->sm[1].addr != 0); // wait until last instruction is finished processing and stay then in ddr mode
+		}
+		else
+		{
+			// generate HDR Exit pattern
+			i3c_pio_put32_no_check(DDR_OPCODE_SDA_DIR(1)); // set SDA to output
+			i3c_pio_put32_no_check(DDR_OPCODE_SDA_PATTERN(8, 0xaa)); // create 1 0 1 0 1 0 1 0 pattern on SDA
+			i3c_pio_put32_no_check(DDR_OPCODE_SCL0_WAIT7); // ensure that SDA is detected low at i2c targets spike filter outputs for proper STOP condition detection
+			i3c_pio_put32_no_check(DDR_OPCODE_SCL1_WAIT7); // wait a bit until SDA is released
+			i3c_pio_put32(DDR_OPCODE_SDA_DIR(0)); // release SDA (open drain). Note: SDA state is still 0 which is important for any following I3C start condition
+			i3c_pio_wait_tx_empty();
+			while (pio0->sm[1].addr != 0); // wait until last instruction is finished processing
+			s_i3c_program_hdr_sdr_sm(); // back to SDR statemachine
+		}
+
+	}
+
+	restore_interrupts(previntstate);
+	return retcode;
 }
 
+i3c_hl_status_t __not_in_flash_func(i3c_hl_ddr_read)(uint8_t addr, uint8_t command, uint16_t *pdat, uint32_t *pwordcount, bool finalize_with_restart, bool read_crc_on_early_termination)
+{
+	i3c_hl_status_t retcode = i3c_hl_status_ok;
+	uint32_t previntstate = save_and_disable_interrupts();
+
+	if (0 == *pwordcount) // defensive programming, I am proud of myself...
+	{
+		return i3c_hl_status_param_outofrange; // ...and my proudness fades away cause I return before the end of the function body :-)
+	}
+
+	if ( !sm_is_in_ddr_mode )
+	{
+		if (i3c_ibi_type1_check())
+		{
+			retcode = i3c_hl_status_ibi;
+		}
+		if (retcode == i3c_hl_status_ok)
+		{
+			i3c_start();
+			retcode = i3c_arbhdr(NULL);
+			if ( retcode == i3c_hl_status_ok )
+			{
+				i3c_sdr_write( 0x20 );
+			}
+			if ( (retcode != i3c_hl_status_ibi) && (retcode != i3c_hl_status_ok) ) // on a IBI getting received, don't terminate the transfer -> it has to be handled by i3c_poll function
+			{
+				i3c_stop();
+			}
+		}
+	}
+
+	if (retcode == i3c_hl_status_ok)
+	{ // let's talk HDR-DDR
+		uint32_t wordcount = *pwordcount;
+		s_i3c_program_hdr_ddr_sm(); // switch to DDR PIO SM. No need to restart it, as the start sequence of PIO code where the PC is at that point of time  is identical
+		i3c_pio_set_autopush_bitrev(19);
+
+		uint32_t cmd1, cmd2, cmd3, cmd4, parity;
+		uint16_t dat;
+		uint8_t  crc5_value = 0x1f<<3;
+		command |= 0x80; // for read transfers bit 7 of command has to be set to 1
+		dat = ((uint16_t)addr<<1) | (((uint16_t)command)<<8);
+
+		// calculate parity for cmdword
+		parity = ((uint32_t)__builtin_parity((dat & 0xaaaaul)) << 1) |      // PA1 = D[15] ^ D[13] ^ D[11] ^ D[9] ^ D[7] ^ D[5] ^ D[3] ^ D[1]
+				 ((uint32_t)__builtin_parity((dat & 0x5555ul))  ^ 1);       // PA0 = D[14] ^ D[12] ^ D[10] ^ D[8] ^ D[6] ^ D[4] ^ D[2] ^ D[0] ^ 1 
+
+		// implement a recommendation from i3c spec which is to enforce that PA0 is 1 for faster turnaround
+		if ((parity & 1u) == 0)
+		{
+			parity |= 1u;
+			dat ^= 1u;
+		}
+		cmd1 = DDR_HDR_OPCODE_WRITE_PREAMBLE(1, 0, 1, 1, 18, i3c_ddr_offset_cmd_write_bits, i3c_ddr_offset_cmd_write_bits);
+		cmd2 = DDR_HDR_OPCODE_WRITE_BITS_NOOPCODE(1, 18, ((uint32_t)dat<<2) | parity);
+		i3c_pio_put32_no_check(cmd1);
+		i3c_pio_put32_no_check(cmd2);
+		crc5_value = CRC5_CALCULATE(crc5_value, dat); // calculate crc5 during data transfer execution to make use of parallelism
+		//printf("%x %x\r\n", dat, crc5_value);
+		i3c_pio_get32(); // dump read data. This is used as synchronization point only
+
+		// read first word This one is special, because the target acknowledges during its preamble phase
+		uint32_t pioretval;
+		cmd1 = DDR_HDR_OPCODE_WRITE_PREAMBLE(0, 0, 0, 0, 18, i3c_ddr_offset_target_nacked, i3c_ddr_offset_cmd_write_bits);
+		cmd2 = DDR_HDR_OPCODE_WRITE_BITS_NOOPCODE(0, 18, 0x00000);
+		i3c_pio_put32_no_check(cmd1);
+		i3c_pio_put32_no_check(cmd2);
+		pioretval = i3c_pio_get32(); // dump read data. This is used as synchronization point to enable SM replacement in next step
+		dat = (uint16_t)(pioretval >> 3);
+		wordcount = 0;
+		if (pioretval & 1)
+		{  // target NACKed after retreiving READ command (I know, NAK is a passive action)
+			retcode = i3c_hl_status_nak_ddr;
+		}
+		else
+		{ // target ACKed
+			*pdat++ = dat;
+			wordcount = 1;
+			crc5_value = CRC5_CALCULATE(crc5_value, dat); // update crc5 with latest dataword
+			// check Parity bits
+			if ( ((pioretval>>1) & 3) != DDR_PARITY(dat) )
+			{
+				retcode = i3c_hl_status_ddr_parity_wrong;
+				printf("dat: %d pioretval: %d calculated_parity: %d\r\n", dat, pioretval, DDR_PARITY(dat));
+			}
+		}
+
+		if (retcode == i3c_hl_status_ok)
+		{ // read the (potential) rest of the data words word by word...
+			bool crc_received = false;     // Set to true in case the target returned a crc value during read. This happens when more words are read as the target can return
+			bool early_terminated = false; // Set to true in case the controller executed an early termination action.
+			uint8_t preamble_value;        // This will receive the preamble value
+			
+			cmd1 = DDR_HDR_OPCODE_READ_BITS(12); // Prepare for reading 12 Bits. This is the first part of a transfer where we don't know if its a CRC or data word.
+			cmd2 = DDR_HDR_OPCODE_READ_BITS(8);  // Read another 8 bits in case we know a data word is to be received.
+
+			for (wordcount=1; wordcount < *pwordcount; wordcount++)
+			{ // During this inner look no early termination has to be signalled by controller. There are only 2 cases the target will signal: Either CRC is received or Data.
+				// as we don't know if the target sends a CRC or data, we first make the worst case assumption in terms 
+				// of data length, which is CRC with its 10 bits.
+				// After those 12 bits are received, we check the preamble. 
+				//	 If it is 01 a CRC word was sent and we stop.
+				//   If it is 11 a Data word is being send and we transfer 8 more bits. Unfortunately this scheme creates a timing gap 
+				//   during data word reading, but we live for it for now until I am more motivated to improve it.
+				i3c_pio_set_autopush_bitrev(13);
+				i3c_pio_put32_no_check(cmd1);
+				pioretval = i3c_pio_get32();      // dump read data. This is used as synchronization point to enable SM replacement in next step
+				preamble_value = (pioretval >> (1+10)); // 01 in case of CRC, 11 in case of data word, other values: report error
+				if (preamble_value == 3)
+				{ // we need to transfer 8 more bits
+					i3c_pio_set_autopush_bitrev(9);
+					i3c_pio_put32_no_check(cmd2);
+					dat = ((uint16_t)pioretval<<5) & 0xffc0;   // The 10 lower bits of pioretval contain the 10 MSBs of the read data word
+					pioretval = i3c_pio_get32();               // Dump read data. This is used as synchronization point to enable SM replacement in next step
+					dat |= (uint16_t)pioretval>>3;             // Complement the last 6 missing bits. The 2 skipped bits are the parity
+					*pdat++ = dat;
+					crc5_value = CRC5_CALCULATE(crc5_value, dat); // Update crc5 with latest dataword
+					// check Parity bits
+					if ( ((pioretval>>1) & 3) != DDR_PARITY(dat) )
+					{
+						retcode = i3c_hl_status_ddr_parity_wrong;
+						break;
+					}
+				}
+				else if (preamble_value == 1)
+				{ // CRC received, no further transfer requred
+					crc_received = true;
+					// check if CRC is correct. If not -> raise an error. Note that the data is still written to the receive buffer.
+					if ( (crc5_value>>3) != ((pioretval>>2) & 0x1f) )
+					{
+						retcode == i3c_hl_status_ddr_crc_wrong;
+					}
+					break;
+				}
+				else
+				{ // we received an invalid preamble, e.g. 00 or 10 -> raise an error and go to HDR EXIT phase...
+					retcode = i3c_hl_status_ddr_invalid_preamble;
+					break;
+				}
+			}
+
+			// TODO: Check if early abortion is required and if so ... do it by transmitting the 2 magic bits...
+			// Early termination is required when no CRC was received in previous phase OR
+			// a Parity or CRC error occured
+			if ( ((retcode == i3c_hl_status_ok) && (!crc_received)) ||
+			     (retcode == i3c_hl_status_ddr_invalid_preamble) || (retcode == i3c_hl_status_ddr_crc_wrong) )
+			 
+			{ // let's terminate "early" -> This means transmitting 2 preamble bits with state 10 as binary value. Only the 0 is actively driven by controller
+				i3c_pio_put32_no_check( DDR_HDR_OPCODE_WRITE_PREAMBLE(0, 0, 1, 0, 18, i3c_ddr_offset_target_nacked, i3c_ddr_offset_target_nacked) );
+				i3c_pio_put32_no_check(0x00000000ul);
+				pioretval = i3c_pio_get32(); // dump read data. This is used as synchronization point to enable SM replacement in next step
+
+				// If the target supports CRC transmission after early termination AND the reason of the early termination was no error...
+				// ...let's read the CRC and check it
+				if  ( (retcode == i3c_hl_status_ok) && (read_crc_on_early_termination) )
+				{
+					i3c_pio_set_autopush_bitrev(13);
+					i3c_pio_put32_no_check(cmd1);
+					pioretval = i3c_pio_get32();      // dump read data. This is used as synchronization point to enable SM replacement in next step
+					if ( (crc5_value>>3) != ((pioretval>>2) & 0x1f) )
+					{
+						retcode == i3c_hl_status_ddr_crc_wrong; // When we get here, it can also mean that the target does NOT support sending a CRC on early termination. For the V1.0 target I test this is the case. I suspect this feature got only introduced in >= V1.1 spec version
+					}
+				}
+			}
+		}
+
+		*pwordcount = wordcount;
+
+		// In case no transfer error occured and a request came to finalize with a HDR-restart condition, we'll do so. This allows concatenation of 
+		// transfers without SDR phase in between.
+		if ( (retcode == i3c_hl_status_ok) && finalize_with_restart )
+		{
+			// generate HDR Exit pattern
+			i3c_pio_put32_no_check(DDR_OPCODE_SDA_DIR(1)); // set SDA to output
+			i3c_pio_put32_no_check(DDR_OPCODE_SDA_PATTERN(5, 0x15)); // create 1 0 1 0 pattern on SDA
+			i3c_pio_put32_no_check(DDR_OPCODE_SCL0);
+			i3c_pio_put32(DDR_OPCODE_SDA_DIR(0)); // release SDA (open drain). Note: SDA state is still 0 which is important for any following I3C start condition
+			i3c_pio_wait_tx_empty();
+			while (pio0->sm[1].addr != 0); // wait until last instruction is finished processing
+		}
+		else
+		{
+			// generate HDR Exit pattern
+			i3c_pio_put32_no_check(DDR_OPCODE_SDA_DIR(1)); // set SDA to output
+			i3c_pio_put32_no_check(DDR_OPCODE_SDA_PATTERN(8, 0xaa)); // create 1 0 1 0 1 0 1 0 pattern on SDA
+			i3c_pio_put32_no_check(DDR_OPCODE_SCL0_WAIT7); // ensure that SDA is detected low at i2c targets spike filter outputs for proper STOP condition detection
+			i3c_pio_put32_no_check(DDR_OPCODE_SCL1_WAIT7); // wait a bit until SDA is released
+			i3c_pio_put32(DDR_OPCODE_SDA_DIR(0)); // release SDA (open drain). Note: SDA state is still 0 which is important for any following I3C start condition
+			i3c_pio_wait_tx_empty();
+			while (pio0->sm[1].addr != 0); // wait until last instruction is finished processing
+			s_i3c_program_hdr_sdr_sm();
+		}
+
+
+	}
+
+	restore_interrupts(previntstate);
+	return retcode;
+}

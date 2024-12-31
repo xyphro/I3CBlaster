@@ -8,7 +8,7 @@
             "request": "launch",
             "type": "cortex-debug",
             "servertype": "openocd",
-            "gdbPath": "C:/Users/nx027468/Documents/Pico-v1.5.1/gdb/bin/gdb-multiarch",
+            "gdbPath": "C:/Program Files (x86)/armgcc/bin/arm-none-eabi-gdb",
             "device": "RP2040",
             "configFiles": [
                 "interface/cmsis-dap.cfg",
