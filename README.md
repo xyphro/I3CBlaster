@@ -36,7 +36,7 @@ Having the ability to execute I3C transfers was for me also a major step in unde
 # Upcoming changes...
 
 A level translator board is designed and ordered - after successful testing I'll release it! The first one is for Seeds Xiao RP2040 board, but a variant for Raspberry Pico board is planned too.
-The board will support 1.2V to 3.3V (NOMinal) IO voltages and has a special mechanism implemented to boost edges. The market does right now hot have level translators available which cover higher voltages of 3.3V.
+The board will support 1.2V to 3.3V (NOMinal) IO voltages and has a special mechanism implemented to boost edges. The market does right now not have level translators with edge shaping available which cover also higher voltages of 3.3V.
 
 ![](https://raw.githubusercontent.com/xyphro/I3CBlaster/master/pictures/level_translator_board.png)
 
@@ -108,7 +108,7 @@ Note, that the I3C bus operates on 3.3V IO levels. In case you want smaller IO l
 
 Why did I use pullup resistors, does I3C require them?
 An I3C does not need permanently enabled pullup resistors. An I3C Bus controller is keeping SCL permanently in push-pull mode and SDA will have a pullup-resistor which is enabled/disabled by the I3C controller IP on the fly at locations where the pullup is required. This maximizes power efficiency.
-But this solution here will require external level translators to enable useability with external targets. The advantage of not requiring permanently enabled pullup-resistor is gone as soon as level translation is applied. It will thus not hurt having pullup resistors enabled.
+But this solution here will require external level translators to enable useability with external targets. The advantage of not requiring permanently enabled pullup-resistor is gone as soon as level translation is applied, because level translators cannot be protocol aware the way I3C is specified and decide autonomously if open drain or push-pull control is required. It will thus not hurt having pullup resistors enabled.
 A secondary reason is, that I plan to integrate i2c functions (using RP2040 I2C IP), which will require pullup resistors to be present. 
 The I3C Bus is indeed as demanded by the standard operated also in push-pull mode in SDR and DDR phases and in some phases where required in open-drain mode. 
 
