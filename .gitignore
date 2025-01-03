@@ -1,9 +1,21 @@
-hw/
+# HW designs are not tested, so leave them out for now until they are tested.
+hw/LevelTranslatorForXiaoRp2040
+hw/I3CBlasterTranslator
+
+# leave out unnecessary KiCad backup and table/cache files
+hw/LevelTranslatorXiaoRp2040-backups
+hw/LevelTranslatorForXiaoRp2040/fp-info-table
+hw/LevelTranslatorForXiaoRp2040/fp-info-cache
+hw/LevelTranslatorForXiaoRp2040/sym-lib-table
+
 src/build
 blob/
 _nonpublic
 python/__pycache__
 pictures/thumbs.db
+
+# step files (those might be copyrighted, sorry!)
+*.step
 
 # Prerequisites
 *.d

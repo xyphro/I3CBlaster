@@ -72,7 +72,7 @@ static const uint8_t __not_in_flash("crc_table") crc5_table[256] = {
 };
 static bool sm_is_in_ddr_mode;
 
-// Helper macro for fast CRC exepcution. For correct usage use ast initial value 0x1f<<3 and the resulting CRC is the return value >>3
+// Helper macro for fast CRC execution. For correct usage use ast initial value 0x1f<<3 and the resulting CRC is the return value >>3
 // The shift by 3 bytes helps in cycle efficiency of the CRC calculation
 #define CRC5_CALCULATE(crc, data) ( crc5_table[crc5_table[(crc) ^ (uint8_t)((data)>>8)] ^ ((uint8_t)(data) & 0xffu)] )
 

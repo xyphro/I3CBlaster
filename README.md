@@ -17,19 +17,6 @@ I only have V1.0 HDR-DDR capable target devices, so testing focused on that. But
 
 Next planned step before doing further SW extensions is a level translator hardware and extension of the binary to the tiny <a href="https://www.seeedstudio.com/XIAO-RP2040-v1-0-p-5026.html" target="_blank">Seeedstudio Xiao RP2040 boards</a>.
 
-Upcoming SW changes will include functional extensions, but first an instantiation method to enable running the i3c_hl module 2 I3C controllers on RP2040 on both PIO instances, but also a cleanup and Doxygen style API documentation.
-
-## What is the difference to commercial products?
-
-A bitbanged or here HW supported bitbanged I3C master will never get exactly to the percentage of bus utilization of a real HW I3C master.
-While the implementation was targeted to be efficient here, there are phases where a PIO statemachine to CPU interaction will "pause" the bus for short times, especially for HDR-DDR transfers. The peak i3c clock frequency of 12.5MHz is reached in this solution. Have a look at the demo code section below to download a captured waveform which allows you to zoom into the timing details. Note, that those pauses are ensured to occur in phases where SCL is low, such that the I3C timings are not violated, which is important for mixed bus scenarios.
-
-A bitbanged solution like the one here can enable you to modify its code for failure insertion to test the robustness of a target. E.g. you can send a wrong CRC value or parity on purpose, generate unexpected bus conditions, etc.
-
-So it might not be an exact 100% replacement of commercial tools, but can be a good step for very initial tests/protocol investigation or later extension with failure insertion methods.
-
-The USB interface is here a CDC based UART, as delivered by Raspberry PI SDK. This solution is a bit inefficient compared to a dedicated custom solution, but enables maximum usability and extendability for the community.
-
 ## In need of an I3C Analyzer?
 
 Have a look at my I3C daughter project, which is a Saleae Logic Analyzer plugin to decode I3C OD, I3C SDR and I3C HDR-DDR transfers:
@@ -45,6 +32,27 @@ But don't forget credits - this project took lots of late night work to make it 
 ## Why did I develop I3CBlaster?
 Because so far there is no easy and low $ solution available to learn I3C protocol or evaluate I3C target devices in the market.
 Having the ability to execute I3C transfers was for me also a major step in understanding the I3C protocol and its many exceptions and hidden features and the reasons behind them. 
+
+# Upcoming changes...
+
+A level translator board is designed and ordered - after successful testing I'll release it! The first one is for Seeds Xiao RP2040 board, but a variant for Raspberry Pico board is planned too.
+The board will support 1.2V to 3.3V (NOMinal) IO voltages and has a special mechanism implemented to boost edges. The market does right now hot have level translators available which cover higher voltages of 3.3V.
+
+![](https://raw.githubusercontent.com/xyphro/I3CBlaster/master/pictures/level_translator_board.png)
+
+Upcoming SW changes will include functional extensions, but first an instantiation method to enable running the i3c_hl module 2 I3C controllers on RP2040 on both PIO instances, but also a cleanup and Doxygen style API documentation.
+
+## What is the difference to commercial products?
+
+A bitbanged or here HW supported bitbanged I3C master will never get exactly to the percentage of bus utilization of a real HW I3C master.
+While the implementation was targeted to be efficient here, there are phases where a PIO statemachine to CPU interaction will "pause" the bus for short times, especially for HDR-DDR transfers. The peak i3c clock frequency of 12.5MHz is reached in this solution. Have a look at the demo code section below to download a captured waveform which allows you to zoom into the timing details. Note, that those pauses are ensured to occur in phases where SCL is low, such that the I3C timings are not violated, which is important for mixed bus scenarios.
+
+A bitbanged solution like the one here can enable you to modify its code for failure insertion to test the robustness of a target. E.g. you can send a wrong CRC value or parity on purpose, generate unexpected bus conditions, etc.
+
+So it might not be an exact 100% replacement of commercial tools, but can be a good step for very initial tests/protocol investigation or later extension with failure insertion methods.
+
+The USB interface is here a CDC based UART, as delivered by Raspberry PI SDK. This solution is a bit inefficient compared to a dedicated custom solution, but enables maximum usability and extendability for the community.
+
 
 # What is I3C?
 I3C is a successor protocol based on I2C, but enabling higher transfer rates. It pulled in many mechanisms from the less well known i2c speed modes 3.4MHz (HS), 5 MHz or 10 MHZ.
@@ -280,7 +288,7 @@ If you see issues like CRC or parity errors, consider looking with an oscillosco
 Here an example of "bad" SDA/SCL signals measured with an active high impedance differential probe:
 ![](https://raw.githubusercontent.com/xyphro/I3CBlaster/master/pictures/i3c_bad_signalintegrity.png)
 
-The target was here wired with 4 jumper wires from RP2040 to the i3c target: GND, VCC, SDA and SCL.
+The target was here wired with 4 jumper wires from RP2040 to the I3C target: GND, VCC, SDA and SCL.
 The SDA signal is driven by the target during the visible phase. The controller side driving phases of the SDA signal are much better behaved.
 
 Apart of the SCL line showing (minor) ringing, the SDA line shows very strong ringing caused by a very high slew-rate and wiring inductive components. More investigations have shown, that ground bouncing due to having just a single thin jumper wire for GND contributed also a lot to it.
@@ -290,7 +298,7 @@ After optimizing this by connecting the target directly to the RP2040 with just 
 ![](https://raw.githubusercontent.com/xyphro/I3CBlaster/master/pictures/i3c_good_signalintegrity.png)
 (Note: The signal content is different, because the improvements rendered I3C transfers to a working state)
 
-There are in practice of course a lot more aspects to signal integrity, e.g. capacitive load, length of lines (aka inductance, cross-talk), termination, source and sink impedance... But I want to give this just as some first pragmatic experience here without going into the depths.
+There are in practice of course a lot more aspects to signal integrity, e.g. capacitive load, length of lines (aka inductance, cross-talk), termination, source and sink impedance... But I want to give this just as some first pragmatic experience here without going into the depths. A good presentation with a much more sophisticated view of I3C signal integrity in certain applications can be found here: <a href="https://www.youtube.com/watch?v=Ju-UhFAgRLg" target="_blank">https://www.youtube.com/watch?v=Ju-UhFAgRLg</a>
 
 **Pull requests or seeing modifications of this is very welcome!**
 
@@ -303,9 +311,12 @@ What about e.g. making a Micropython module out of it? this would add a lot of v
 But note: I won't be able to respond always immediately, ... Sometimes it can be within hours, sometimes days or months. I don't make a living out of this and simply want to increase the amount of i3c tools available to the public. Consider this a community project and try to help yourself also - the full source code is included in this repository.
 
 # How to compile yourself
+
+There is no need to compile anything, if you just want to use it as is. But in case you want to make changes/extensions:
+
 The project is setup to work without pico SDK being installed. You only need to have a VSCode installation with arm-none-eabi toolchain and CMAKE. After configuring CMAKE you the picosdk is downloaded during first build. After any further builds the presence of picosdk is detected and no further buildtime gets wasted.
 
-In case you reuse, please give visible credits according to the MIT license.
+In case you reuse in your own projects, please give visible credits according to the MIT license.
 
 **So: Have fun using it!**
 
