@@ -45,7 +45,7 @@ The board will support 1.2V to 3.3V (NOMinal) IO voltages and has a special mech
 The PCBs for the level translators arrived and got mounted. First signs of life are there - I will now go into a testing phase to optimize it.
 A 3D case is also designed:
 
-![](https://raw.githubusercontent.com/xyphro/I3CBlaster/master/pictures/I3CBlasterTranslatorBoardWithCase.png)
+![](https://raw.githubusercontent.com/xyphro/I3CBlaster/master/pictures/I3CBlasterTranslatorBoardWithCase.jpg)
 
 Upcoming SW changes will include functional extensions, but first an instantiation method to enable running the i3c_hl module 2 I3C controllers on RP2040 on both PIO instances, but also a cleanup and Doxygen style API documentation.
 
