@@ -49,7 +49,12 @@ The functional supported IO voltage levels are to 0.9V 3.6V.
 
 The 3D case is to be released after improving the design a bit for better snap fit of the 2 halves and fixing the pinning order labels.
 
-**Another update:** The software auto detects now if it runs on a XIAO RP2040 board or a Raspberry pi PICO.
+The edge acceleration function can be turned on and off by setting GPIO0 to either 0 (off) or to 1 (on). The gpio_write function can be used for that sake: 
+* `gpio_write 0 0` to turn it off.
+* `gpio_write 0 1` to turn it on (=default state).
+
+
+**Software side updates:** The software auto detects now if it runs on a XIAO RP2040 board or a Raspberry pi PICO.
 
 When running it on the Xiao module, the I3C signal pinning is:
 
