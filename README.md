@@ -39,9 +39,9 @@ Having the ability to execute I3C transfers was for me also a major step in unde
 
 **[1st February 25]**
 I added a level translator board for the XIAO module and adjusted software to use it.
-The Kicad design can be found here: <a href="https://github.com/xyphro/I3CBlaster/hw/">https://github.com/xyphro/I3CBlaster/hw/</a>
+The Kicad design can be found here: <a href="https://github.com/xyphro/I3CBlaster/tree/main/hw">/hw</a>
 
-If you want to investigate the schematic you can look here: <a href="https://github.com/xyphro/I3CBlaster/hw/schematic_LevelTranslatorXiaoRp2040.pdf">https://github.com/xyphro/I3CBlaster/hw/schematic_LevelTranslatorXiaoRp2040.pdf</a>
+If you want to investigate the schematic you can look here: <a href="https://raw.githubusercontent.com/xyphro/I3CBlaster/master/hw/schematic_LevelTranslatorXiaoRp2040.pdf">hw/schematic_LevelTranslatorXiaoRp2040.pdf</a>
 
 The schematic shows also some measurement results of the board, focused on propagation delay. I am not yet happy about the propagation delays for 1.0V and 1.2V and you might need to slow down the I3C clock frequency a bit, but this is a first starting point. 
 
