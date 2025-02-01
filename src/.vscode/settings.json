@@ -17,6 +17,13 @@
         "ucli_helpers.h": "c",
         "pico.h": "c",
         "strings.h": "c",
+        "pll.h": "c",
+        "uart.h": "c",
+        "stdio.h": "c",
+        "ucli.h": "c",
+        "tusb.h": "c",
+        "timer.h": "c",
+        "cstdio": "c"
     },
     "cortex-debug.variableUseNaturalFormat": false,
     "C_Cpp.errorSquiggles": "disabled"

@@ -7,6 +7,8 @@
 #include <string.h>
 #include <limits.h>
 #include <stdio.h>
+#include "XiaoNeoPixel.h"
+
 
 /*
 Based on Microrl library

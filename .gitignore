@@ -1,5 +1,10 @@
 # HW designs are not tested, so leave them out for now until they are tested.
-hw/LevelTranslatorForXiaoRp2040
+hw/LevelTranslatorForXiaoRp2040/*.xlsx
+hw/LevelTranslatorForXiaoRp2040/LevelTranslatorXiaoRp2040-backups
+hw/LevelTranslatorForXiaoRp2040/*.lck
+hw/LevelTranslatorForXiaoRp2040/#auto_saved_files#
+hw/LevelTranslatorForXiaoRp2040/fp*
+Thumbs.db
 hw/I3CBlasterTranslator
 
 # leave out unnecessary KiCad backup and table/cache files

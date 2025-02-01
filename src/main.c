@@ -3,14 +3,19 @@
 #include "pico/stdlib.h"
 #include "hardware/clocks.h"
 #include "hardware/gpio.h"
+#include "hardware/uart.h"
+#include "hardware/structs/adc.h"
+#include "hardware/adc.h"
 #include "i3c_hl.h"
 #include "ucli.h"
 #include "tusb.h"
+#include "hardware/timer.h"
 #include <stdlib.h>
 
 #include "hardware/pll.h"
 #include "hardware/structs/pll.h"
 #include "hardware/structs/clocks.h"
+#include "XiaoNeoPixel.h"
 
 /*
 MIT License
@@ -559,6 +564,88 @@ UCLI_COMMAND_DEF(i3c_drivestrength, "Set the drive strength of SDA and SCL outpu
 	printf("%s\r\n", i3c_hl_get_errorstring(retcode));
 }
 
+UCLI_COMMAND_DEF(i3c_gpiobase, "set gpio base pin for i3c. The specified GPIO pin will be the SDA line, the SCL line will be the specified GPIO+1.",
+    UCLI_INT_ARG_DEF(gpiobase, "The gpio base pin. Valid range: 0..27.")
+)
+{
+	uint8_t id[8];
+	i3c_hl_status_t retcode = i3c_hl_status_ok;
+	if ( (args->gpiobase > 27) )
+	{
+		ucli_error("gpiobase has to be in range 0..27");
+		return;
+	}
+	i3c_init(args->gpiobase);
+	printf("%s", i3c_hl_get_errorstring(retcode));
+	printf("\r\n");
+}
+
+UCLI_COMMAND_DEF(i3c_signaltest, "Some tests for characterizing level translation. The module needs to be reset after using it. To avoid misuse, I disable it below, but I want to conserve the code",
+    UCLI_INT_ARG_DEF(togglemode, "0 for scl toggle, 1 for sda push-pull toggle, 2 for scl push-pull toggle, 3 for SDA reverse toggle test.")
+)
+{
+	uint8_t id[8];
+
+	i3c_hl_status_t retcode = i3c_hl_status_ok;
+	if ( args->togglemode == 0 )
+	{
+    	gpio_init(7);
+		gpio_set_dir(7, GPIO_OUT);
+		gpio_set_function(7, GPIO_FUNC_SIO);
+
+		for (uint8_t i=0; i<100; i++)
+		{
+			gpio_xor_mask(1<<7);
+			sleep_us(1);
+		}
+	}
+	else if (args->togglemode == 1)
+	{
+    	gpio_init(6);
+		gpio_set_dir(6, GPIO_OUT);
+		gpio_set_function(6, GPIO_FUNC_SIO);
+
+		for (uint8_t i=0; i<100; i++)
+		{
+			gpio_xor_mask(1<<6);
+			sleep_us(1);
+		}
+	}
+	else if (args->togglemode == 2)
+	{
+    	gpio_init(6);
+		gpio_set_function(6, GPIO_FUNC_SIO);
+
+		gpio_put(6, 0);
+		for (uint8_t i=0; i<100; i++)
+		{
+			gpio_set_dir(6, GPIO_OUT);
+			sleep_us(1);
+			gpio_set_dir(6, GPIO_IN);
+			sleep_us(1);
+		}
+	}
+	else if (args->togglemode == 3)
+	{
+    	gpio_init(29);
+		gpio_set_dir(29, GPIO_OUT);
+		gpio_set_function(29, GPIO_FUNC_SIO);
+		gpio_put(29, 0);
+
+		for (uint8_t i=0; i<100; i++)
+		{
+			gpio_set_dir(29, GPIO_OUT);
+			sleep_us(1);
+			gpio_set_dir(29, GPIO_IN);
+			sleep_us(1);
+		}
+	}
+	
+	printf("%s", i3c_hl_get_errorstring(retcode));
+	printf("\r\n");
+}
+
+
 
 bool usb_newly_connected(void)
 {
@@ -571,9 +658,15 @@ bool usb_newly_connected(void)
 	return result;
 }
 
+bool is_xiao = true;
+uint8_t comm_active = 0;
+uint64_t last_timer;
+
 int main()
 {
 	stdio_init_all();
+
+	is_xiao = xnp_is_xiao_module();
 
 	// initialize gpio 0..15 as general purpose GPIOs with state = input
 	for (uint32_t gpio=0; gpio < 16; gpio++)
@@ -602,12 +695,37 @@ int main()
 	ucli_cmd_register(i3c_ddr_write);
 	ucli_cmd_register(i3c_ddr_read);
 	ucli_cmd_register(i3c_ddr_writeread);
+	//ucli_cmd_register(i3c_gpiobase); // With xiao module autodetection this function is not required anymore.
+	//ucli_cmd_register(i3c_signaltest); // enable only during development phase
 	
-	
-	// initialize i3c to use GPIO16=SDA and GPIO17=SCL
-	i3c_init(16);
+	if (is_xiao)
+	{
+		xnp_init();
+		xnp_send(0, 0, 0);
 
-	while (1) {
+		adc_init();
+    	adc_gpio_init(26);
+		adc_select_input(0); // GPIO26 = ADC0 channel. Maps to PA02_A0_D0 pin of Xiao rp2040 module
+		adc_run(true);
+		last_timer = time_us_64();
+
+		// enable edge accelerator
+    	gpio_init(0);
+		gpio_set_dir(0, GPIO_OUT);
+		gpio_put(0, 1);
+		gpio_set_function(0, GPIO_FUNC_SIO);
+
+	}
+	
+	// initialize i3c to use GPIO16=SDA and GPIO17=SCL (raspberry pico board)
+	// xiao rp2040 base i2c pin is gpio6
+	if (is_xiao)
+		i3c_init(6);
+	else
+		i3c_init(16);
+
+	while (1) 
+	{
 		if (usb_newly_connected())
 		{
 			sleep_ms(500);
@@ -621,11 +739,37 @@ int main()
 		// put received char from stdin to ucli lib
 		int ch = getchar_timeout_us(0);
 		if (ch >= 0)
+		{
         	ucli_process((char)ch);
+			comm_active = 3; // keep Neolight >=300ms in ON state every time a character was received
+		}
+
+		if (is_xiao)
+		{
+			uint64_t tval = time_us_64();
+			if ( (tval-last_timer) >= (100ul * 1000ul) ) // update light every 100ms
+			{ // triggers every 100ms
+				//printf("adc %d\n", (adc_hw->result));
+				last_timer = tval;
+				if (comm_active)
+				{
+					xnp_send(0, 0, 255);
+					comm_active--;
+				}
+				else
+				{					
+					uint8_t col = (adc_hw->result) >> 4; // 8 bit adc value. 255 = 6.6V
+					if (col < 33) // if VIO < 0.9V show only a dark red light
+						xnp_send(64, 0, 0);
+					else // if VIO >= 0.9V show a green light with scaled brightness (the higher the brighter)
+						//uint8_t scaler = ((uint32_t)col-34)*255(/(255-34);
+						xnp_send(0, col, (col-34)/4);
+				}
+			}
+		}
 	}
 }
 
-// Write an article about I3C signal integrity...
 /*
 i3c_drivestrength 2
 i3c_sdr_write 0x70 0x13,0x04

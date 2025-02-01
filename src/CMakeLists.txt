@@ -16,14 +16,17 @@ add_executable(i3cblaster
 	main.c
 	i3c_hl.c
 	ucli.c
+	XiaoNeoPixel.c
 	)
 
 pico_generate_pio_header(i3cblaster ${CMAKE_CURRENT_LIST_DIR}/i3c.pio)
 
-target_link_libraries(i3cblaster pico_stdlib hardware_pio)
 
 pico_enable_stdio_usb(i3cblaster 1)
 pico_enable_stdio_uart(i3cblaster 0)
+
+
+target_link_libraries(i3cblaster pico_stdlib hardware_pio  hardware_adc)
 
 pico_add_extra_outputs(i3cblaster)
 

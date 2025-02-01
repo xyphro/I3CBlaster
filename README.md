@@ -1,4 +1,4 @@
-# I3CBlaster
+Download the I3CBlaster# I3CBlaster
 
 ## What is I3CBlaster?
 I3C Blaster is a firmware image you can flash to your Raspberry PI PICO board to let it act as USB to I3C converter. Simply add 2 pullup resistors and you are ready to go.
@@ -33,19 +33,42 @@ But don't forget credits - this project took lots of late night work to make it 
 Because so far there is no easy and low $ solution available to learn I3C protocol or evaluate I3C target devices in the market.
 Having the ability to execute I3C transfers was for me also a major step in understanding the I3C protocol and its many exceptions and hidden features and the reasons behind them. 
 
-# Upcoming changes...
-
-A level translator board is designed and ordered - after successful testing I'll release it! The first one is for Seeds Xiao RP2040 board, but a variant for Raspberry Pico board is planned too.
-The board will support 1.2V to 3.3V (NOMinal) IO voltages and has a special mechanism implemented to boost edges. The market does right now not have level translators with edge shaping available which cover also higher voltages of 3.3V.
-
-![](https://raw.githubusercontent.com/xyphro/I3CBlaster/master/pictures/level_translator_board.png)
-
-## 12th January 2025 update
-
-The PCBs for the level translators arrived and got mounted. First signs of life are there - I will now go into a testing phase to optimize it.
-A 3D case is also designed:
+# level translator board
 
 ![](https://raw.githubusercontent.com/xyphro/I3CBlaster/master/pictures/I3CBlasterTranslatorBoardWithCase.jpg)
+
+**[1st February 25]**
+I added a level translator board for the XIAO module and adjusted software to use it.
+The Kicad design can be found here: <a href="https://github.com/xyphro/I3CBlaster/hw/">https://github.com/xyphro/I3CBlaster/hw/</a>
+
+If you want to investigate the schematic you can look here: <a href="https://github.com/xyphro/I3CBlaster/hw/schematic_LevelTranslatorXiaoRp2040.pdf">https://github.com/xyphro/I3CBlaster/hw/schematic_LevelTranslatorXiaoRp2040.pdf</a>
+
+The schematic shows also some measurement results of the board, focused on propagation delay. I am not yet happy about the propagation delays for 1.0V and 1.2V and you might need to slow down the I3C clock frequency a bit, but this is a first starting point. 
+
+The functional supported IO voltage levels are to 0.9V 3.6V. 
+
+The 3D case is to be released after improving the design a bit for better snap fit of the 2 halves and fixing the pinning order labels.
+
+**Another update:** The software auto detects now if it runs on a XIAO RP2040 board or a Raspberry pi PICO.
+
+When running it on the Xiao module, the I3C signal pinning is:
+
+| Module name            | SCL            | SDA            |
+|----------------|----------------|----------------|
+| Raspberry Pi Pico | GPIO17 | GPIO16|
+| Seeed Xiao RP2040 | GPIO7 | GPIO6|
+
+The Xiao RP2040 module has a nice NeoPixel LED. I enabled it to show in the software some states.
+
+| LED color | Explanation |
+|-----------|-------------|
+|RED        | The Vtarget voltage is not supplied to the Vtarget pin | 
+|GREEN      | The supplied target voltage is >= 0.9V. note that the voltage level changes "how bright" the LED will glow GREEN|
+|BLUE       | Whenever data is received over the serial port, the led will flash BLUE to show activity |
+
+![](https://raw.githubusercontent.com/xyphro/I3CBlaster/master/pictures/XiaoLedColor.png)
+
+## Further planned changes
 
 Upcoming SW changes will include functional extensions, but first an instantiation method to enable running the i3c_hl module 2 I3C controllers on RP2040 on both PIO instances, but also a cleanup and Doxygen style API documentation.
 
