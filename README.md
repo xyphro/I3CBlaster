@@ -22,6 +22,13 @@ Next planned step before doing further SW extensions is a level translator hardw
 Have a look at my I3C daughter project, which is a Saleae Logic Analyzer plugin to decode I3C OD, I3C SDR and I3C HDR-DDR transfers:
 <a href="https://github.com/xyphro/XyphroLabs-I3C-Saleae-Protocol-Analyzer" target="_blank">https://github.com/xyphro/XyphroLabs-I3C-Saleae-Protocol-Analyzer</a> 
 
+## Do you want to decode I3C with Sigrok Pulseview?
+
+Have a look at my I3C decoder project for Sigrok Pulseview:
+
+<a href="https://github.com/xyphro/Sigrok-I3C-decoder" target="_blank">https://github.com/xyphro/Sigrok-I3C-decoder</a> 
+
+
 ### What else is this?
 It is an I3C controller driver code based on a single RP2040 PIO. Feel free to reuse it in other projects!
 The i3c_hl.c or .h files provide an interface to all kind of different I3C transfer types. 
