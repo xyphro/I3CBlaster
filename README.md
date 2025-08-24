@@ -44,6 +44,24 @@ Having the ability to execute I3C transfers was for me also a major step in unde
 
 ![](https://raw.githubusercontent.com/xyphro/I3CBlaster/master/pictures/I3CBlasterTranslatorBoardWithCase.jpg)
 
+**[25th August 25]**
+
+Finally i did it and added i2c functions. They are added to uart terminal, but also exposed consistently via python layer.
+
+The new functions are:
+```plaintext
+  i2c_clk                  - Set I2C clock frequency
+  i2c_scan                 - Scan for available i2c addreses. Reserved I2C addre
+                             sses (like 0x00) are not scanned
+  i2c_timeout              - Set I2C timeout value. The timeout applies to read&
+                             write and the whole transfer time. The default time
+                             out is 100ms
+  i2c_write                - Execute an i2c write transfer to a target
+  i2c_read                 - Execute an i2c read from a target
+  i2c_writeread            - Execute an i2c combined write read transfer from a
+                             target
+```
+
 **[1st February 25]**
 I added a level translator board for the XIAO module and adjusted software to use it.
 The Kicad design can be found here: <a href="https://github.com/xyphro/I3CBlaster/tree/main/hw">/hw</a>

@@ -40,7 +40,8 @@ typedef enum
     i3c_hl_status_ddr_early_termination, // Early termination requested by target during ddr write. This does not necessarily mean that an error occured
     i3c_hl_status_ddr_invalid_preamble,  // Unexpected preamble value received
     i3c_hl_status_ddr_parity_wrong,      // Incorrect HDR-CCC value received during HDR-DDR read transfer
-    i3c_hl_status_ddr_crc_wrong          // Incorrect CCC received during HDR-DDR read transfer
+    i3c_hl_status_ddr_crc_wrong,         // Incorrect CCC received during HDR-DDR read transfer
+    i3c_hl_status_i2c_xfererror,         // Generic i2c transfer error (e.g. no Acknowledge or timeout)
 } i3c_hl_status_t;
 
 i3c_hl_status_t i3c_init(uint8_t gpiobasepin);
@@ -98,5 +99,11 @@ i3c_hl_status_t i3c_hl_ddr_read(uint8_t addr, uint8_t command, uint16_t *pdat, u
 
 // set drive strength for SDA and SCL outputs. Valid inputs are 2, 4, 8, 12. The units is in mA
 i3c_hl_status_t i3c_hl_set_drivestrength(uint8_t drivestrength_mA);
+
+// switch gpio pinmux to either i2c mode or i3c mode. Use this function to execute i2c transfers using normal i2c API.
+// default wise the pinout is switched ti i3c mode after calling i3c_init().
+// enable_i2c_module            True to select i2c and give access to i2c IP behind it
+//                              False to select i3c (PIO) 
+i3c_hl_status_t i3c_hl_i2c_pinmode(bool enable_i2c_module);
 
 #endif //_I3C_HL_H

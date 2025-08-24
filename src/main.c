@@ -17,6 +17,8 @@
 #include "hardware/structs/clocks.h"
 #include "XiaoNeoPixel.h"
 
+#include "hardware/i2c.h"
+
 /*
 MIT License
 
@@ -46,6 +48,10 @@ SOFTWARE.
 static bool i3c_ddr_config_crc_word_indicator = true;
 static bool i3c_ddr_config_enable_early_write_term = false;
 static bool i3c_ddr_config_write_ack_enable = false;
+
+static i2c_inst_t *i2c_instance = i2c0;
+static uint32_t i2c_timeout_ms = 100;
+static uint32_t i2c_freq_khz = 100;
 
 
 
@@ -645,6 +651,154 @@ UCLI_COMMAND_DEF(i3c_signaltest, "Some tests for characterizing level translatio
 	printf("\r\n");
 }
 
+UCLI_COMMAND_DEF(i2c_clk, "Set I2C clock frequency",
+    UCLI_INT_ARG_DEF(freq_khz, "The Clock frequency as integer number in units of kHz. Valid range: 1..2000. Default speed is 100kHz. As function of capacitive load the actual frequency will be lower.")
+)
+{
+	i3c_hl_status_t retcode;
+	retcode = i3c_hl_status_ok;
+	if ( (args->freq_khz >= 1) && (args->freq_khz <= 2000) )
+	{
+		i2c_freq_khz = args->freq_khz;
+		i2c_set_baudrate (i2c_instance, args->freq_khz * 1000);
+	}
+	else
+	{
+		retcode = i3c_hl_status_param_outofrange;
+	}
+	
+	printf("%s\r\n", i3c_hl_get_errorstring(retcode));
+}
+
+UCLI_COMMAND_DEF(i2c_timeout, "Set I2C timeout value. The timeout applies to read&write and the whole transfer time. The default timeout is 100ms",
+    UCLI_INT_ARG_DEF(timeout_ms, "Timeout in units of ms. Maximum timeout is 10000 = 10s")
+)
+{
+	i3c_hl_status_t retcode;
+	retcode = i3c_hl_status_ok;
+
+	if (args->timeout_ms > 10000)
+		retcode = i3c_hl_status_param_outofrange;
+	else
+		i2c_timeout_ms = args->timeout_ms;
+	
+	printf("%s\r\n", i3c_hl_get_errorstring(retcode));
+}
+
+UCLI_COMMAND_DEF(i2c_scan, "Scan for available i2c addreses. Reserved I2C addresses (like 0x00) are not scanned"
+)
+{
+	bool notfirst = false;
+	printf("%s,", i3c_hl_get_errorstring(i3c_hl_status_ok));
+	i3c_hl_i2c_pinmode(true);
+	i2c_init(i2c_instance, i2c_freq_khz*1000ul);	
+	for (uint8_t addr=0; addr<0x80; addr++)
+	{
+		if ( !((addr & 0x78) == 0 || (addr & 0x78) == 0x78) )
+		{
+			int ret;
+			uint8_t rxdata;
+			ret = i2c_read_timeout_us (i2c_instance, addr, &rxdata, 1, false, i2c_timeout_ms*1000ul);
+			if ( ret >= 0 )
+			{
+				if (notfirst)
+					printf(",");
+				printf("0x%02x", addr);
+				notfirst = true;
+			}
+		}
+	}
+	i3c_hl_i2c_pinmode(false);
+	printf("\r\n");
+}
+
+UCLI_COMMAND_DEF(i2c_write, "Execute an i2c write transfer to a target",
+    UCLI_INT_ARG_DEF(addr, "The 7-Bit address of the target"),
+    UCLI_OPTIONAL_STR_ARG_DEF(payload, "Optional payload data - byte values seperated with comma without whitespaces (e.g. 0x12,0x43,0x56)")
+)
+{
+	uint8_t payload[1024];
+	uint32_t payloadlen=sizeof(payload);
+	i3c_hl_status_t retcode;
+	retcode = i3c_hl_status_ok;
+	int ret;
+
+	i3c_hl_i2c_pinmode(true);
+	i2c_init(i2c_instance, i2c_freq_khz*1000ul);	
+	parse_array_string(args->payload, payload, &payloadlen);
+	if (i2c_write_timeout_us(i2c_instance, args->addr, payload, payloadlen, false, i2c_timeout_ms*1000ul) < 0)
+		retcode = i3c_hl_status_i2c_xfererror;
+	printf("%s\r\n", i3c_hl_get_errorstring(retcode));
+	i3c_hl_i2c_pinmode(false);
+}
+
+UCLI_COMMAND_DEF(i2c_read, "Execute an i2c read from a target",
+    UCLI_INT_ARG_DEF(addr, "The 7-Bit address of the target"),
+    UCLI_INT_ARG_DEF(len, "The count of bytes to read (0..255)")
+)
+{
+	bool success;
+	const char *pstart, *pstr;
+	uint8_t  payload[1024];
+	uint32_t payloadlen=args->len;
+	
+	i3c_hl_status_t retcode;
+	retcode = i3c_hl_status_ok;
+
+	i3c_hl_i2c_pinmode(true);
+	i2c_init(i2c_instance, i2c_freq_khz*1000ul);	
+	if (i2c_read_timeout_us (i2c_instance, args->addr, payload, payloadlen, false, i2c_timeout_ms*1000ul) < 0)
+		retcode = i3c_hl_status_i2c_xfererror;
+	i3c_hl_i2c_pinmode(false);
+
+	printf("%s", i3c_hl_get_errorstring(retcode));
+	if (retcode == i3c_hl_status_ok)
+	{
+		for (uint32_t i=0; i<payloadlen; i++)
+			printf(",0x%02x", payload[i]);
+	}
+	printf("\r\n");
+}
+
+UCLI_COMMAND_DEF(i2c_writeread, "Execute an i2c combined write read transfer from a target",
+    UCLI_INT_ARG_DEF(addr, "The 7-Bit address of the target"),
+    UCLI_STR_ARG_DEF(payload, "The data payload to write during write phase of transfer"),
+    UCLI_INT_ARG_DEF(len, "The count of bytes to read (0..255)")
+)
+{
+	uint8_t  payload[1024];
+	uint32_t payloadlen=sizeof(payload);
+	uint8_t  rxdata[1024];
+	uint32_t rxlen;
+	i3c_hl_status_t retcode;
+
+	rxlen = args->len;
+	parse_array_string(args->payload, payload, &payloadlen);
+
+	i3c_hl_i2c_pinmode(true);
+	i2c_init(i2c_instance, i2c_freq_khz*1000ul);	
+	if (i2c_write_timeout_us (i2c_instance, args->addr, payload, payloadlen, true, i2c_timeout_ms*1000ul) < 0)
+	{
+		retcode = i3c_hl_status_i2c_xfererror;
+	}
+	else
+	{
+		rxlen = args->len;
+		if (i2c_read_timeout_us (i2c_instance, args->addr, rxdata, rxlen, false, i2c_timeout_ms*1000ul) < 0)
+ 			retcode = i3c_hl_status_i2c_xfererror;
+
+	}
+	i3c_hl_i2c_pinmode(false);
+
+	printf("%s", i3c_hl_get_errorstring(retcode));
+	if (retcode == i3c_hl_status_ok)
+	{
+		for (uint32_t i=0; i<rxlen; i++)
+			printf(",0x%02x", rxdata[i]);
+	}
+	printf("\r\n");
+}
+
 
 
 bool usb_newly_connected(void)
@@ -695,6 +849,14 @@ int main()
 	ucli_cmd_register(i3c_ddr_write);
 	ucli_cmd_register(i3c_ddr_read);
 	ucli_cmd_register(i3c_ddr_writeread);
+	ucli_cmd_register(i2c_clk);
+	ucli_cmd_register(i2c_scan);
+	ucli_cmd_register(i2c_timeout);
+	ucli_cmd_register(i2c_write);
+	ucli_cmd_register(i2c_read);
+	ucli_cmd_register(i2c_writeread);
+	
+	
 	//ucli_cmd_register(i3c_gpiobase); // With xiao module autodetection this function is not required anymore.
 	//ucli_cmd_register(i3c_signaltest); // enable only during development phase
 	
@@ -715,14 +877,25 @@ int main()
 		gpio_put(0, 1);
 		gpio_set_function(0, GPIO_FUNC_SIO);
 
+		i2c_instance = i2c1;
 	}
+	else
+	{
+		i2c_instance = i2c0;
+	}
+
 	
+	// Initialize i2c module
+
 	// initialize i3c to use GPIO16=SDA and GPIO17=SCL (raspberry pico board)
 	// xiao rp2040 base i2c pin is gpio6
 	if (is_xiao)
 		i3c_init(6);
 	else
 		i3c_init(16);
+
+	// initialize i2c IP to default 100kHz - Note that i2c is not select in pinmux at this state
+	i2c_init(i2c_instance, 100000);
 
 	while (1) 
 	{

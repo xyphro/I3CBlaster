@@ -48,6 +48,7 @@ static uint8_t i3c_hl_gpiobasepin;
 static uint32_t i3c_hl_pio_program_sdr[32]; // copy of pio memory for fast exchange of SM. It is on purpose located in ram for fast copy action
 static uint32_t i3c_hl_pio_program_ddr[32]; // copy of pio memory for fast exchange of SM. It is on purpose located in ram for fast copy action
 
+
 // A table to help executing CRC5 CRCs using macro CRC5_CALCULATE
 // generated using pycrc:
 //   python pycrc.py --width=5 --poly=0x05 --reflect-in=False --xor-in=0x1f --reflect-out=False --xor-out=0x1f --algorithm=table-driven --generate=C --output=out.c
@@ -295,6 +296,22 @@ i3c_hl_status_t i3c_hl_set_clkrate(uint32_t targetfreq_khz)
 	pio0->sm[1].clkdiv = (12500*65536) / targetfreq_khz;
 	return i3c_hl_status_ok;
 }
+
+i3c_hl_status_t i3c_hl_i2c_pinmode(bool enable_i2c_module)
+{
+	if (enable_i2c_module)
+	{
+		gpio_set_function(i3c_hl_gpiobasepin, GPIO_FUNC_I2C);
+		gpio_set_function(i3c_hl_gpiobasepin+1, GPIO_FUNC_I2C);
+	}
+	else
+	{
+		gpio_set_function(i3c_hl_gpiobasepin, GPIO_FUNC_PIO0);
+		gpio_set_function(i3c_hl_gpiobasepin+1, GPIO_FUNC_PIO0);
+	}
+	return i3c_hl_status_ok;
+}
+
 
 // bit 0 = pinstate falling edge
 // bit 1 = pindir   falling edge
@@ -943,6 +960,7 @@ const char     *i3c_hl_get_errorstring(i3c_hl_status_t errcode)
 		case i3c_hl_status_ddr_invalid_preamble  : sprintf(errstring, "ERR_DDR_INVALID_PREAMBLE(%d)", (uint32_t)errcode); break;
 		case i3c_hl_status_ddr_parity_wrong      : sprintf(errstring, "ERR_DDR_READ_PARITY_WRONG(%d)", (uint32_t)errcode); break;
 		case i3c_hl_status_ddr_crc_wrong         : sprintf(errstring, "ERR_DDR_READ_CRC_WRONG(%d)", (uint32_t)errcode); break;
+		case i3c_hl_status_i2c_xfererror         : sprintf(errstring, "ERR_I2C_FAILED(%d)", (uint32_t)errcode); break;
 		default:
 			sprintf(errstring, "ERR_UNDEFINED(%d)", (uint32_t)errcode); 
 			break;

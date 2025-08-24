@@ -105,7 +105,10 @@ class i3cblaster:
                     values = values[1:]
                 values = values.split(',')              
                 for v in values:
-                    returnvalues.append(int(v, 0))                
+                    try:
+                        returnvalues.append(int(v, 0))                
+                    except:
+                        pass;
         else:
             errorcode = resp
         return (errorcode, returnvalues)
@@ -361,6 +364,69 @@ class i3cblaster:
         else:
             return [0, []]
     
+    # check by scanning which I2C addresses are responding on the bus
+    # returns a python array with integer values which are the addresses which naked in 7-bit format.
+    def i2c_scan(self):
+        resp = self._parse_response(self._exec('i2c_scan'))
+        if resp[0] != self.OKTEXT:
+            raise Exception('I3C Blaster exception: ' + resp[0])
+        return resp[1]
+
+
+    # Set the I2C clock frequency in units of kHz.
+    # provide e.g. 1000 for 1 MHz. Note that the actual frequency will be lower as function of bus capacitance.
+    def i2c_clk(self, clockrate_khz):
+        resp = self._parse_response(self._exec('i2c_clock %d' % clockrate_khz))
+        if resp[0] != self.OKTEXT:
+            raise Exception('I3C Blaster exception: ' + resp[0])
+
+    # Set the I2C timeout in units of milliseconds [ms].
+    # provide e.g. 100 for a 100ms timeout. The timeout applies to the full i2c write or read transfer time.
+    def i2c_timeout(self, timeout_ms):
+        resp = self._parse_response(self._exec('i2c_timeout %d' % timeout_ms))
+        if resp[0] != self.OKTEXT:
+            raise Exception('I3C Blaster exception: ' + resp[0])
+
+    # execute an i2c write transfer to a I2C target.
+    # writedata is an array, targetaddr is the 7-bit targetaddress to write to
+    def i2c_write(self, targetaddr, writedata):
+        cmd = 'i2c_write %d ' % targetaddr
+        for d in writedata:
+            cmd += hex(d)+','
+        if len(writedata) > 0:
+            cmd = cmd[0:-1]
+        resp = self._parse_response(self._exec(cmd))
+        if resp[0] != self.OKTEXT:
+            raise Exception('I3C Blaster exception: ' + resp[0])
+
+    # execute an i2cread transfer from a I2C target.
+    # readbyecount is the count of bytes requested to read, 
+    # targetaddr is the 7-bit targetaddress to write to
+    # The function returns the read data bytes.
+    def i2c_read(self, targetaddr, readbytecount):
+        cmd = 'i2c_read %d %d' % (targetaddr, readbytecount)
+        resp = self._parse_response(self._exec(cmd))
+        if resp[0] != self.OKTEXT:
+            raise Exception('I3C Blaster exception: ' + resp[0])
+        return resp[1]
+
+    # execute an i2c write transfer from a I3C target followed by a restart and read transfer.
+    # targetaddr is the 7-bit targetaddress to write to.
+    # write data is an array with the bytes to write during write phase.
+    # readbyecount is the count of bytes requested to read.
+    # The function returns the read data bytes.
+    def i2c_writeread(self, targetaddr, writedata, readbytecount):
+        cmd = 'i2c_writeread %d ' % targetaddr
+        for d in writedata:
+            cmd += hex(d)+','
+        if len(writedata) > 0:
+            cmd = cmd[0:-1]
+        cmd += ' %d' % readbytecount
+        resp = self._parse_response(self._exec(cmd))
+        if resp[0] != self.OKTEXT:
+            raise Exception('I3C Blaster exception: ' + resp[0])
+        return resp[1]
+
 
 def listdevices():
     foundserials = []
