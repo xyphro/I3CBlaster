@@ -240,7 +240,7 @@ class i3cblaster:
     # targetaddr is the 7-bit target address    
     # bc_phase_writedata is an array with payload data to write during the broadcast phase of the transfer
     # direct_phase_writedata is an array with payload data to write during the direct addressed phase of the transfer
-    def i3c_sdr_ccc_bc_write(self, targetaddr, bc_phase_writedata, direct_phase_writedata):
+    def i3c_sdr_ccc_direct_write(self, targetaddr, bc_phase_writedata, direct_phase_writedata):
         cmd = 'i3c_sdr_ccc_bc_write %d ' % targetaddr
         for d in bc_phase_writedata:
             cmd += hex(d)+','
@@ -354,7 +354,6 @@ class i3cblaster:
             cmd = cmd[0:-1]
         cmd += ' %d' % readbytecount
         resp = self._parse_response(self._exec(cmd))
-        print('parsed response: ', resp)
         if resp[0] != self.OKTEXT:
             raise Exception('I3C Blaster exception: ' + resp[0])
         if len(resp[1]) > 0:
