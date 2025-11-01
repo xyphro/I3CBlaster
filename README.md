@@ -12,7 +12,16 @@ I3CBlaster has 3 usage schemes:
 
 ![](https://raw.githubusercontent.com/xyphro/I3CBlaster/master/pictures/Puttysession.png)
 
-**Right before New-Year 2025 update**: HDR-DDR transfers got added :sunglasses:  
+## November 2025 update
+
+In this Webinar I explain a bit the basics and usage of I3CBlaster. It is also a nice watch to get an introduction to I3C in general.
+
+[![](https://img.youtube.com/vi/9GxcpGY4_B8/0.jpg)](https://www.youtube.com/watch?v=9GxcpGY4_B8&t=5s) 
+
+(click to watch)
+
+## Right before New-Year 2025 update
+HDR-DDR transfers got added :sunglasses:  
 I only have V1.0 HDR-DDR capable target devices, so testing focused on that. But all aspects from V1.1 were also added. In case you start looking into HDR-DDR first time, please look into ENDXFER CCC documentation and i3c_ddr_config function, as quite some extensions were introduced in V1.1 spec version. Whenever I get access to a V1.1 capable target, I'll extend my testing.
 
 Next planned step before doing further SW extensions is a level translator hardware and extension of the binary to the tiny <a href="https://www.seeedstudio.com/XIAO-RP2040-v1-0-p-5026.html" target="_blank">Seeedstudio Xiao RP2040 boards</a>.
