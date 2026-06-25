@@ -15,6 +15,7 @@ endif()
 set(PICO_BOARD pico CACHE STRING "Board type")
 
 cmake_minimum_required(VERSION 3.13)
+find_package(Git)
 
 #set(CMAKE_BUILD_TYPE "Release")
 #set(CMAKE_BUILD_TYPE "Debug")
@@ -26,6 +27,23 @@ include(pico_sdk_import.cmake)
 project(i3cblaster C CXX ASM)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
+
+if(GIT_EXECUTABLE)
+  # Generate a git-describe version string from Git repository tags
+  execute_process(
+    COMMAND ${GIT_EXECUTABLE} describe --tags --dirty
+    OUTPUT_VARIABLE GIT_DESCRIBE_VERSION
+    RESULT_VARIABLE GIT_DESCRIBE_ERROR_CODE
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    )
+  if(NOT GIT_DESCRIBE_ERROR_CODE)
+    set(I3CBLASTER_VERSION \"${GIT_DESCRIBE_VERSION}\")
+  endif()
+endif()
+
+if(NOT DEFINED I3CBLASTER_VERSION)
+  set(I3CBLASTER_VERSION \"unknown\")
+endif()
 
 set(PICO_SDK_FETCH_FROM_GIT)
 
@@ -50,5 +68,5 @@ target_link_libraries(i3cblaster pico_stdlib hardware_pio  hardware_adc hardware
 pico_add_extra_outputs(i3cblaster)
 
 
-set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g -D VERSION='${I3CBLASTER_VERSION}'")
 
