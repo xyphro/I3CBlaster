@@ -12,10 +12,6 @@ inst_parser:
     pull block                     ; pull new instruction word
     out pc, 5
 
-PUBLIC cmd_exec:
-    out exec, 16                   ; direct command execution
-    jmp inst_parser         
-
 PUBLIC cmd_stop:
     out y, 10           side 0    ; SCL = LOW and  desired delay time (delay determines LOW phase duration)
     set pins, 0                   ; SDA = LOW
@@ -37,7 +33,13 @@ PUBLIC cmd_restart:
 PUBLIC cmd_scl0:
     nop                 
     jmp inst_parser    side 0 [0];
+	
+PUBLIC cmd_exec:
+    out exec, 16                   ; direct command execution
+    jmp inst_parser         	
 
+	nop  ; gapfiller for overlay
+	
 ; Bits: 5 instruction, 3 counter, 6* 
 PUBLIC cmd_xfer_bits:
     out x, 3          
@@ -57,10 +59,49 @@ skipdelay:
     out pindirs, 1      side 1                    ; bit 3 = pindir   rising edge
     jmp x-- nextbit            [0]
 
-; space for 1 instruction is left over here :-)
-
 .wrap
 
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Overlay statemachine to support proper handling of T-Bit for SDR reads
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+
+.program i3c_overlay
+.side_set 1 opt
+.wrap_target
+
+inst_parser:
+    nop
+    nop
+
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+    nop
+
+PUBLIC cmd_restart:
+    nop                                // additional delay to match SCL high time duration
+	nop              side 0      [2]
+	in  pins, 1                         // save target abort intention state
+	jmp pin, target_wants_to_continue
+		out NULL, 2	        		   // dump 2 instruction bits => first 2 bits are for 
+		
+target_wants_to_continue:
+	
+	out pindirs, 1    side 1     [1]   // SCL=1, first bit out
+	out pindirs, 1				 [2]   // 2nd half high cycle bit out
+	
+	nop               side 0           // SCL=0, SDA=0
+    set pindirs, 1               [4]   // this is 1 cycle delayed - this is actually not required as tsco can be 0. But it makes the trace better readable IMHO
+	jmp inst_parser   side 0     [1]   // SCL=1, jump to back to next instruction
+
+
+
+.wrap
 
 ///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // Statemachine for HDR-DDR mode - The i3c_hl module  replaces the SDR statemachine with this one once required
@@ -167,6 +208,7 @@ toggle_again:
 
 
 % c-sdk {
+    #define I3CPIO_OPCODE_T_BIT(controller_abort)	                ( ((uint32_t)(1)<<8) | ((uint32_t)(1)<<7) | ((uint32_t)(controller_abort)<<6) | ((uint32_t)(0)<<5) | ((uint32_t)(i3c_overlay_offset_cmd_restart)) )
     #define I3CPIO_OPCODE_STOP_DELAY(delay)	                        ( ((uint32_t)(delay)<<5) | ((uint32_t)(i3c_offset_cmd_stop)) )
 
     // Opcode helpers for interacting with PIO implementation "i3c"

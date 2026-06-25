@@ -45,8 +45,9 @@ SOFTWARE.
 static uint32_t i3c_wdata_table[512];
 static uint8_t i3c_hl_arbcode;
 static uint8_t i3c_hl_gpiobasepin;
-static uint32_t i3c_hl_pio_program_sdr[32]; // copy of pio memory for fast exchange of SM. It is on purpose located in ram for fast copy action
-static uint32_t i3c_hl_pio_program_ddr[32]; // copy of pio memory for fast exchange of SM. It is on purpose located in ram for fast copy action
+static uint32_t i3c_hl_pio_program_sdr[32];         // copy of pio memory for fast exchange of SM. It is on purpose located in ram for fast copy action
+static uint32_t i3c_hl_pio_program_ddr[32];         // copy of pio memory for fast exchange of SM. It is on purpose located in ram for fast copy action
+static uint32_t i3c_hl_pio_program_sdr_overlay[32]; // copy of pio memory for fast exchange of SM. It is on purpose located in ram for fast copy action
 
 
 // A table to help executing CRC5 CRCs using macro CRC5_CALCULATE
@@ -92,6 +93,16 @@ static inline void __not_in_flash_func(i3c_pio_wait_tx_empty)(void)
 	}
 }
 
+// wait until PIO is idle - i.e. waits in first PULL instruction
+static inline void __not_in_flash_func(i3c_pio_wait_idle)(void) 
+{
+    while ( pio0->sm[0].addr  != 0 )
+    {
+	}
+}
+
+
+
 // blocking write to pio pipeline
 static inline void __not_in_flash_func(i3c_pio_put32)(uint32_t data) 
 {
@@ -134,6 +145,20 @@ static inline void __not_in_flash_func(i3c_pio_restart)(void)
 {
 	pio0->ctrl = PIO_CTRL_CLKDIV_RESTART_BITS | (1 << (PIO_CTRL_SM_ENABLE_LSB + 1));
 }
+
+// program pio SM for SDR mode overlay or remove overlay - this requires the current statemachine to be already the sdr statemachine as precondition
+static inline void __not_in_flash_func(s_i3c_program_sdr_overlay_sm)(bool tbit_overlay)
+{
+	void *datasrc;
+
+	i3c_pio_wait_tx_empty();
+	i3c_pio_wait_idle();
+	datasrc =  (void*)&i3c_hl_pio_program_sdr[i3c_overlay_offset_cmd_restart];
+	if (tbit_overlay)
+		datasrc = (void*)&i3c_hl_pio_program_sdr_overlay[i3c_overlay_offset_cmd_restart];
+	memcpy((void*)(&pio0->instr_mem[i3c_overlay_offset_cmd_restart]), datasrc, (i3c_overlay_program.length-i3c_overlay_offset_cmd_restart)*4);
+}
+
 
 // program pio SM for SDR mode
 static inline void __not_in_flash_func(s_i3c_program_hdr_sdr_sm)(void)
@@ -222,6 +247,14 @@ i3c_hl_status_t i3c_init(uint8_t gpiobasepin)
 		else
 		{
 			i3c_hl_pio_program_ddr[i] = 0x0ul;
+		}
+		if (i < (sizeof(i3c_overlay_program_instructions)/sizeof(uint16_t)) )
+		{
+			i3c_hl_pio_program_sdr_overlay[i] = i3c_overlay_program_instructions[i];
+		}
+		else
+		{
+			i3c_hl_pio_program_sdr_overlay[i] = 0x0ul;
 		}
 	}
 	i3c_hl_gpiobasepin = gpiobasepin;
@@ -354,6 +387,7 @@ static inline void __not_in_flash_func(i3c_restart)(void)
 {
 	
 	i3c_pio_put32( I3CPIO_OPCODE_RESTART ); // start
+	i3c_pio_put32( I3CPIO_OPCODE_SCL0 ); 
 }
 
 static inline void __not_in_flash_func(i3c_stop)(void)
@@ -380,6 +414,7 @@ void __not_in_flash_func(i3c_sdr_write)(uint8_t value)
 // The Master can signal back its intention in Bit 9 high state:
 //   1 => Continue transfer
 //   0 => STOP transfer (creates an implcit repeated start)
+#if 0
 static uint32_t __not_in_flash_func(i3c_sdr_read)(uint8_t continuetransfer)
 {
 	uint32_t data;
@@ -392,6 +427,22 @@ static uint32_t __not_in_flash_func(i3c_sdr_read)(uint8_t continuetransfer)
 	data = i3c_pio_get32(); // dump read data;
 	return data;
 }
+#else
+static uint32_t __not_in_flash_func(i3c_sdr_read)(uint8_t continuetransfer)
+{
+	uint32_t data;
+	i3c_pio_wait_tx_empty(); // wait until tx pipe is empty. Afterwards 4 words can be written without full check
+	i3c_pio_set_autopush(9);
+	i3c_pio_put32_no_check( I3CPIO_OPCODE_XFER(6, SDR_RBIT(0), SDR_RBIT(0), SDR_RBIT(0), SDR_RBIT(0), SDR_RBIT(0), SDR_RBIT(0)) );
+	i3c_pio_put32_no_check( I3CPIO_OPCODE_XFER(2, SDR_RBIT(0), SDR_RBIT(0), 0, 0, 0, 0) );	
+	i3c_pio_put32_no_check( I3CPIO_OPCODE_T_BIT(continuetransfer) ); // handle T-Bit
+	//i3c_pio_put32_no_check( I3CPIO_OPCODE_SCL0 ); // avoid high phase beeing too long
+	data = i3c_pio_get32(); // dump read data;
+	return data;
+}
+#endif
+
+
 
 static void __not_in_flash_func(i3c_od_write)(uint8_t value)
 {
@@ -442,7 +493,7 @@ static inline uint8_t __not_in_flash_func(i3c_od_read8)(void)
 // returns true of SDA is low (IBI/HJ type 1)
 bool __not_in_flash_func(i3c_ibi_type1_check)(void)
 {
-	return ((iobank0_hw->io[i3c_hl_gpiobasepin].status & IO_BANK0_GPIO0_STATUS_INFROMPAD_BITS) >> IO_BANK0_GPIO0_STATUS_INFROMPAD_LSB) == 0;
+	return ((io_bank0_hw->io[i3c_hl_gpiobasepin].status & IO_BANK0_GPIO0_STATUS_INFROMPAD_BITS) >> IO_BANK0_GPIO0_STATUS_INFROMPAD_LSB) == 0;
 }
 
 // returns true when acked and no arbitration issue occured.
@@ -623,7 +674,10 @@ i3c_hl_status_t __not_in_flash_func(i3c_hl_sdr_privwriteread)(uint8_t addr, cons
 					i3c_sdr_write(*pwritedat++);
 				// step over to read phase
 				i3c_restart();
+
+
 				retcode = i3c_sdr_write_addr((addr<<1) | 1);
+s_i3c_program_sdr_overlay_sm(true);
 				if (retcode == i3c_hl_status_ok)
 				{
 					uint32_t readlen = *preadbytecount;
@@ -640,6 +694,8 @@ i3c_hl_status_t __not_in_flash_func(i3c_hl_sdr_privwriteread)(uint8_t addr, cons
 					}
 					*preadbytecount = readbytecount;
 				}
+s_i3c_program_sdr_overlay_sm(false);
+
 			}
 		}
 		if (retcode != i3c_hl_status_ibi) // on a IBI getting received, don't terminate the transfer -> it has to be handled by i3c_poll function
@@ -729,6 +785,7 @@ i3c_hl_status_t __not_in_flash_func(i3c_hl_sdr_ccc_direct_read)(const uint8_t *p
 			while (bytecount--)
 				i3c_sdr_write(*pdat++);
 			i3c_restart();
+s_i3c_program_sdr_overlay_sm(true);
 			retcode = i3c_sdr_write_addr((addr<<1) | 1);
 			if (retcode == i3c_hl_status_ok)
 			{
@@ -744,6 +801,7 @@ i3c_hl_status_t __not_in_flash_func(i3c_hl_sdr_ccc_direct_read)(const uint8_t *p
 				}
 				*pdirectbytecount = readbytecount;
 			}
+s_i3c_program_sdr_overlay_sm(false);
 		}
 		if (retcode != i3c_hl_status_ibi) // on a IBI getting received, don't terminate the transfer -> it has to be handled by i3c_poll function
 			i3c_stop();
@@ -769,6 +827,7 @@ i3c_hl_status_t __not_in_flash_func(i3c_hl_sdr_ccc_read)(const uint8_t *pwriteda
 			i3c_sdr_write(*pwritedata++);
 		i3c_restart();
 		retcode = i3c_sdr_write_addr((0x7e<<1) | 1);
+s_i3c_program_sdr_overlay_sm(true);
 		if ( retcode == i3c_hl_status_ok )
 		{
 			done = false;
@@ -782,6 +841,7 @@ i3c_hl_status_t __not_in_flash_func(i3c_hl_sdr_ccc_read)(const uint8_t *pwriteda
 			}
 			*preadlen = readbytecount;
 		}
+s_i3c_program_sdr_overlay_sm(false);
 	}
 	if (retcode != i3c_hl_status_ibi) // on a IBI getting received, don't terminate the transfer -> it has to be handled by i3c_poll function
 		i3c_stop();
@@ -815,6 +875,7 @@ i3c_hl_status_t __not_in_flash_func(i3c_hl_sdr_privread)(uint8_t addr, uint8_t *
 		{
 			i3c_restart();
 			retcode = i3c_sdr_write_addr((addr<<1) | 1);
+s_i3c_program_sdr_overlay_sm(true);
 			if ( retcode == i3c_hl_status_ok )
 			{
 				
@@ -828,6 +889,7 @@ i3c_hl_status_t __not_in_flash_func(i3c_hl_sdr_privread)(uint8_t addr, uint8_t *
 					readbytecount++;
 				}
 			}
+s_i3c_program_sdr_overlay_sm(false);
 		}
 		if (retcode != i3c_hl_status_ibi) // on a IBI getting received, don't terminate the transfer -> it has to be handled by i3c_poll function
 			i3c_stop();
@@ -843,6 +905,7 @@ i3c_hl_status_t __not_in_flash_func(i3c_hl_checkack)(uint8_t addr)
 
 	if (i3c_ibi_type1_check())
 	{
+		printf("IBI CHECK\n");
 		return i3c_hl_status_ibi;
 	}
 
@@ -855,6 +918,11 @@ i3c_hl_status_t __not_in_flash_func(i3c_hl_checkack)(uint8_t addr)
 	}
 	if (retcode != i3c_hl_status_ibi) // on a IBI getting received, don't terminate the transfer -> it has to be handled by i3c_poll function
 		i3c_stop();
+	
+	// ensure SDA is settled to avoid unintended IBI detection in next step
+	sleep_us(100);
+	i3c_ibi_type1_check();
+
 	return retcode;
 }
 
@@ -986,6 +1054,8 @@ i3c_hl_status_t __not_in_flash_func(i3c_hl_poll)(uint8_t *pdat, uint32_t *plen)
 			*pdat++ = i3c_hl_arbcode;
 			*plen = *plen + 1;
 		}
+s_i3c_program_sdr_overlay_sm(true);
+
 		while ( (maxlen--) && (!done) )
 		{
 			uint32_t value;
@@ -994,12 +1064,14 @@ i3c_hl_status_t __not_in_flash_func(i3c_hl_poll)(uint8_t *pdat, uint32_t *plen)
 			*pdat++ = value >>1;
 			*plen = *plen + 1;
 		}
+s_i3c_program_sdr_overlay_sm(false);
 		i3c_stop();
 		i3c_hl_arbcode = 0xfc;
 	}
 	else if (i3c_ibi_type1_check())   // check if interrupt is asserted by target (SDA=0)
 	{ // read IBI in OD mode
 		uint8_t ibiword = i3c_od_read(1); // read and ACK
+s_i3c_program_sdr_overlay_sm(true);
 		if (plen > 0)
 		{
 			*pdat++ = ibiword;
@@ -1020,6 +1092,7 @@ i3c_hl_status_t __not_in_flash_func(i3c_hl_poll)(uint8_t *pdat, uint32_t *plen)
 				*plen = *plen + 1;
 			}
 		}
+s_i3c_program_sdr_overlay_sm(false);
 		i3c_stop();
 	}
 	else

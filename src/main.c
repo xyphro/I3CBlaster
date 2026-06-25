@@ -11,13 +11,16 @@
 #include "tusb.h"
 #include "hardware/timer.h"
 #include <stdlib.h>
-
+#include "hardware/regs/io_bank0.h"
+#include "hardware/structs/io_bank0.h"
 #include "hardware/pll.h"
 #include "hardware/structs/pll.h"
 #include "hardware/structs/clocks.h"
 #include "XiaoNeoPixel.h"
 
 #include "hardware/i2c.h"
+
+bool is_xiao = true;
 
 /*
 MIT License
@@ -288,19 +291,21 @@ UCLI_COMMAND_DEF(i3c_rstdaa, "Execute i3crstdaa broadcast transfer. This will un
 UCLI_COMMAND_DEF(i3c_scan, "Scan for available i3c addreses"
 )
 {
-	bool notfirst = false;
+	bool notfirst = false, gotibi = false;
 	printf("%s,", i3c_hl_get_errorstring(i3c_hl_status_ok));
 	for (uint8_t addr=0; addr<0x80; addr++)
 	{
 		if ( (addr != 0x7F) && (addr != 0x7C) && (addr != 0x7A) && (addr != 0x76) && (addr != 0x6E) && (addr != 0x5E) && (addr != 0x3E) )
 		{
-			if ( i3c_hl_checkack(addr) == i3c_hl_status_ok )
+			i3c_hl_status_t status = i3c_hl_checkack(addr);
+			if ( status == i3c_hl_status_ok )
 			{
 				if (notfirst)
 					printf(",");
 				printf("0x%02x", addr);
 				notfirst = true;
 			}
+			sleep_us(10);
 		}
 	}
 	i3c_hl_arbhdronly(); // free the bus
@@ -455,7 +460,7 @@ UCLI_COMMAND_DEF(gpio_read, "Get gpio state. If no parameter is given a 32 Bit n
 	gpiostate = 0;
 	for (i=0; i<30; i++)
 	{
-		if ((iobank0_hw->io[i].status & IO_BANK0_GPIO0_STATUS_INFROMPAD_BITS) >> IO_BANK0_GPIO0_STATUS_INFROMPAD_LSB > 0)
+		if ((io_bank0_hw->io[i].status & IO_BANK0_GPIO0_STATUS_INFROMPAD_BITS) >> IO_BANK0_GPIO0_STATUS_INFROMPAD_LSB > 0)
 		{
 			gpiostate |= (1<<i);
 		}
@@ -770,7 +775,7 @@ UCLI_COMMAND_DEF(i2c_writeread, "Execute an i2c combined write read transfer fro
 	uint32_t payloadlen=sizeof(payload);
 	uint8_t  rxdata[1024];
 	uint32_t rxlen;
-	i3c_hl_status_t retcode;
+	i3c_hl_status_t retcode = i3c_hl_status_ok;
 
 	rxlen = args->len;
 	parse_array_string(args->payload, payload, &payloadlen);
@@ -799,6 +804,17 @@ UCLI_COMMAND_DEF(i2c_writeread, "Execute an i2c combined write read transfer fro
 	printf("\r\n");
 }
 
+UCLI_COMMAND_DEF(i3c_recover, "reinitialize i3c driver")
+{
+	uint8_t id[8];
+	i3c_hl_status_t retcode = i3c_hl_status_ok;
+	if (is_xiao)
+		i3c_init(6);
+	else
+		i3c_init(16);
+	printf("%s", i3c_hl_get_errorstring(retcode));
+	printf("\r\n");
+}
 
 
 bool usb_newly_connected(void)
@@ -812,7 +828,6 @@ bool usb_newly_connected(void)
 	return result;
 }
 
-bool is_xiao = true;
 uint8_t comm_active = 0;
 uint64_t last_timer;
 
@@ -855,6 +870,8 @@ int main()
 	ucli_cmd_register(i2c_write);
 	ucli_cmd_register(i2c_read);
 	ucli_cmd_register(i2c_writeread);
+
+	ucli_cmd_register(i3c_recover);
 	
 	
 	//ucli_cmd_register(i3c_gpiobase); // With xiao module autodetection this function is not required anymore.
@@ -948,4 +965,59 @@ i3c_drivestrength 2
 i3c_sdr_write 0x70 0x13,0x04
 i3c_ddr_write 0x70 0x00 0x1234,0x2345
 i3c_ddr_read 0x70 0x00 10
+
+
+
+
+
+BMA585:
+-------
+	i2c_clk 100
+	i3c_drivestrength 2
+	i2c_write 0x18 0x04,0x00
+	i2c_write 0x18 0x35,0x01
+	i2c_write 0x18 0x3b,0x01
+	i3c_scan
+	i3c_entdaa 0x30
+
+
+
+	i3c_sdr_write 0x30 0x36,0xC0
+	i3c_sdr_write 0x30 0x55,0x01
+	i3c_sdr_write 0x30 0x54,0x01
+	-> TAP
+	i3c_poll
+	
+	
+
+BMI232:
+// Byte order: LOW, HIGH
+-------
+	i3c_scan
+i3c_entdaa 0x30
+	-> BMI323 OK(0),0x07,0x70,0x10,0x43,0x10,0x00,0x06,0xef	
+i3c_entdaa 0x31
+	->	OK(0),0x07,0x70,0x10,0x50,0x10,0x00,0x06,0x62	-> BMP585
+
+// configure accelerometer
+i3c_sdr_write 0x30 0x20,0x27,0x31
+
+// map interrupt to IBI
+i3c_sdr_write 0x30 0x3B,0x03,0xFF
+
+-> Interrupt comes!
+i3c_poll
+
+
+
+
+
+					// to read sensor data:
+					i3c_sdr_writeread 0x30 0x03 8
+
+					// enable feature engine
+					FEATURE_IO2 0x012c:				i3c_sdr_write 0x30 0x12,0x2c,0x01
+					FEATURE_IO_STATUS 0x0001		i3c_sdr_write 0x30 0x14,0x01,0x00
+					FEATURE_CTRL.engine_en 0x0001	i3c_sdr_write 0x30 0x40,0x01,0x00
+
 */

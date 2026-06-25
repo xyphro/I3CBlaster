@@ -5,13 +5,15 @@
 #include "hardware/uart.h"
 #include "hardware/gpio.h"
 #include "hardware/sync.h"
+#include "hardware/regs/io_bank0.h"
+#include "hardware/structs/io_bank0.h"
 
 void xnp_init(void)
 {
 	uart_init(uart0, 6666666ul);
 	uart_set_format(uart0, 6, 1, UART_PARITY_NONE);
 	gpio_set_function (12, GPIO_FUNC_UART);
-	iobank0_hw->io[12].ctrl = (iobank0_hw->io[12].ctrl & ~(3u<<8)) | (1u<<8); // invert UART output signal
+	io_bank0_hw->io[12].ctrl = (io_bank0_hw->io[12].ctrl & ~(3u<<8)) | (1u<<8); // invert UART output signal
     gpio_init(11);
 	gpio_set_dir(11, GPIO_OUT);    
     gpio_put(11, 1);
