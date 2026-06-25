@@ -329,6 +329,7 @@ void ucli_init(void)
     ucli_print("\033[?3l");
     ucli_print(ESC_HIDE_CURSOR);
     ucli_print(UCLI_WELCOMEMSG);
+    ucli_print("Version: " VERSION "\r\n");
     ucli_print(UCLI_PROMPT_STR);
     ucli_print(ESC_SHOW_CURSOR);
 

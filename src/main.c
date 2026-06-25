@@ -379,6 +379,7 @@ UCLI_COMMAND_DEF(i3c_poll, "Poll / handle interrupt"
 
 UCLI_COMMAND_DEF(info, "Show information about this version")
 {
+	printf("Version: " VERSION "\r\n");
     ucli_print("Supported protocols: I3C SDR, I3C OD\r\n");
 	printf("Automated command mode:\r\n");
 	printf("-----------------------\r\n");
